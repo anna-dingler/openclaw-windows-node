@@ -371,7 +371,7 @@ public sealed class NativeGatewaySetupUxContractTests
                     completion.IndexOf("setupWindow.NavigateToNativeComplete", StringComparison.Ordinal));
         var window = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "SetupWindow.xaml.cs"));
         Assert.Contains("MergeCapabilitiesIntoSettingsFile(Path.Combine(_dataDir, \"settings.json\"))", window);
-        Assert.Contains("new CapabilitiesPageArgs(_config, false, false, NativeGateway: true)", window);
+        Assert.Contains("new CapabilitiesPageArgs(_config, false, NativeGateway: true)", window);
         var cancelStart = wizard.IndexOf("window.NavigateToNativeCapabilities()", StringComparison.Ordinal);
         Assert.True(cancelStart >= 0);
         Assert.DoesNotContain("window.NavigateToNativeGatewaySetup()", wizard);
