@@ -58,6 +58,23 @@ public sealed partial class SettingsPage : Page
             LoadGatewaySection(settings);
     }
 
+    internal void ShowAbout()
+    {
+        if (IsLoaded)
+            AboutHeading.StartBringIntoView();
+        else
+        {
+            Loaded -= OnAboutLoaded;
+            Loaded += OnAboutLoaded;
+        }
+    }
+
+    private void OnAboutLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnAboutLoaded;
+        AboutHeading.StartBringIntoView();
+    }
+
     /// <summary>
     /// The Settings view model is assigned as the page DataContext by the navigation activation
     /// hook. The two-way bindings handle load/persist; the page only subscribes to the view-only
