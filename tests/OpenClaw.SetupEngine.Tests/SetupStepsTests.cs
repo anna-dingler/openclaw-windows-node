@@ -4850,7 +4850,7 @@ public class SetupStepsTests : IDisposable
             Tailscale = new TailscaleConfig { Enabled = true, TrustTailscaleAuth = false }
         };
         var ctx = CreateContext(config);
-        ctx.SharedGatewayToken = "test-auth-token";
+        ctx.SharedGatewayToken = "shared-token";
         ctx.BootstrapToken = "bootstrap-token";
 
         var gatewayConfig = ConfigureGatewayStep.BuildConfigCommands(
@@ -4861,7 +4861,7 @@ public class SetupStepsTests : IDisposable
         Assert.Equal("shared-token", SetupPairingCredentialPolicy.ResolveInitialPairingToken(ctx));
         ctx.SharedGatewayToken = null;
         Assert.Equal("bootstrap-token", SetupPairingCredentialPolicy.ResolveInitialPairingToken(ctx));
-        ctx.SharedGatewayToken = "test-auth-token";
+        ctx.SharedGatewayToken = "shared-token";
         var pairResult = await new PairOperatorStep().ExecuteAsync(ctx, CancellationToken.None);
 
         Assert.False(pairResult.IsSuccess);
@@ -5477,7 +5477,7 @@ public class SetupStepsTests : IDisposable
             });
         var ctx = CreateContext(commands: commands);
         ctx.DistroName = "test-distro";
-        ctx.SharedGatewayToken = "shared-token";
+        ctx.SharedGatewayToken = "test-auth-token";
         ctx.OperatorDeviceId = socketDeviceId;
 
         var result = await PairOperatorStep.AutoApprovePairing(ctx, CancellationToken.None);
@@ -5548,14 +5548,12 @@ public class SetupStepsTests : IDisposable
             });
         var ctx = CreateContext(commands: commands);
         ctx.DistroName = "test-distro";
-        ctx.SharedGatewayToken = "shared-token";
+        ctx.SharedGatewayToken = "test-auth-token";
         ctx.OperatorDeviceId = socketDeviceId;
 
-        var deviceResult = await VerifyEndToEndStep.DrainPendingDeviceApprovalsAsync(ctx, CancellationToken.None);
-        var nodeResult = await VerifyEndToEndStep.DrainPendingNodeApprovalsAsync(ctx, CancellationToken.None);
+        var result = await VerifyEndToEndStep.DrainPendingApprovalsAsync(ctx, CancellationToken.None);
 
-        Assert.True(deviceResult.IsSuccess, deviceResult.Message);
-        Assert.True(nodeResult.IsSuccess, nodeResult.Message);
+        Assert.True(result.IsSuccess, result.Message);
         Assert.DoesNotContain(
             commands.WslCalls,
             call => call.Command.Contains("approve --latest", StringComparison.Ordinal));
