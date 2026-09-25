@@ -4850,7 +4850,7 @@ public class SetupStepsTests : IDisposable
             Tailscale = new TailscaleConfig { Enabled = true, TrustTailscaleAuth = false }
         };
         var ctx = CreateContext(config);
-        ctx.SharedGatewayToken = "shared-token";
+        ctx.SharedGatewayToken = "test-auth-token";
         ctx.BootstrapToken = "bootstrap-token";
 
         var gatewayConfig = ConfigureGatewayStep.BuildConfigCommands(
@@ -4861,7 +4861,7 @@ public class SetupStepsTests : IDisposable
         Assert.Equal("shared-token", SetupPairingCredentialPolicy.ResolveInitialPairingToken(ctx));
         ctx.SharedGatewayToken = null;
         Assert.Equal("bootstrap-token", SetupPairingCredentialPolicy.ResolveInitialPairingToken(ctx));
-        ctx.SharedGatewayToken = "shared-token";
+        ctx.SharedGatewayToken = "test-auth-token";
         var pairResult = await new PairOperatorStep().ExecuteAsync(ctx, CancellationToken.None);
 
         Assert.False(pairResult.IsSuccess);
