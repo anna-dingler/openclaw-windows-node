@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using OpenClaw.Connection;
 using OpenClaw.Connection.NativeGateway;
+using OpenClaw.SetupEngine.UI.Controls;
 
 namespace OpenClaw.SetupEngine.UI.Pages;
 
@@ -16,7 +17,7 @@ public sealed partial class NativeGatewaySetupPage : Page
     private readonly NativeGatewayMsixInstaller _installer = new();
     private CancellationTokenSource? _operationCts;
     private Task? _operation;
-    private readonly List<StepRow> _rows = [];
+    private readonly List<SetupPhaseStatus> _rows = [];
     private int _currentStep;
     internal bool IsBusy => _operation is { IsCompleted: false };
 
@@ -25,10 +26,19 @@ public sealed partial class NativeGatewaySetupPage : Page
         InitializeComponent();
         foreach (var key in new[] { "StepSupport", "StepPackage", "StepPrepare", "StepVerify" })
         {
-            var row = new StepRow(SetupLocalization.GetString($"Onboarding_Native_{key}"));
-            AutomationProperties.SetAutomationId(row.Element, $"NativeGateway{key}");
-            _rows.Add(row);
-            StepsPanel.Children.Add(row.Element);
+            var status = new SetupPhaseStatus();
+            status.Apply(SetupInstallationStatus.Pending);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+            row.Children.Add(new TextBlock
+            {
+                Text = SetupLocalization.GetString($"Onboarding_Native_{key}"),
+                Width = 280,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            row.Children.Add(status);
+            AutomationProperties.SetAutomationId(row, $"NativeGateway{key}");
+            _rows.Add(status);
+            StepsPanel.Children.Add(row);
         }
         Loaded += (_, _) => StartOperation();
         Unloaded += (_, _) => _operationCts?.Cancel();
@@ -51,7 +61,7 @@ public sealed partial class NativeGatewaySetupPage : Page
     private async Task RunOperationAsync(CancellationToken cancellationToken)
     {
         foreach (var row in _rows)
-            row.SetStatus(StepStatus.Idle);
+            row.Apply(SetupInstallationStatus.Pending);
         _currentStep = 0;
         RetryButton.Visibility = Visibility.Collapsed;
         SetBusy(true);
@@ -61,7 +71,7 @@ public sealed partial class NativeGatewaySetupPage : Page
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _rows[_currentStep].SetStatus(StepStatus.Idle);
+            _rows[_currentStep].Apply(SetupInstallationStatus.Cancelled);
             StatusText.Text = SetupLocalization.GetString("Onboarding_Native_Cancelled");
             RetryButton.Visibility = Visibility.Visible;
         }
@@ -69,7 +79,7 @@ public sealed partial class NativeGatewaySetupPage : Page
                                    or Win32Exception or COMException or JsonException or TimeoutException or AggregateException)
         {
             Trace.TraceError($"Native Gateway setup: {ex}");
-            _rows[_currentStep].SetStatus(StepStatus.Failed);
+            _rows[_currentStep].Apply(SetupInstallationStatus.Failed);
             StatusText.Text = SetupLogger.Sanitize(ex.Message);
             RetryButton.Visibility = Visibility.Visible;
         }
@@ -130,7 +140,7 @@ public sealed partial class NativeGatewaySetupPage : Page
             return;
         }
         SetCurrentStep(3);
-        _rows[3].SetStatus(StepStatus.Done);
+        _rows[3].Apply(SetupInstallationStatus.Complete);
         window.NavigateToNativeWizard(session);
     }
 
@@ -146,9 +156,9 @@ public sealed partial class NativeGatewaySetupPage : Page
     private void SetCurrentStep(int index)
     {
         for (var i = 0; i < index; i++)
-            _rows[i].SetStatus(StepStatus.Done);
+            _rows[i].Apply(SetupInstallationStatus.Complete);
         _currentStep = index;
-        _rows[index].SetStatus(StepStatus.Running);
+        _rows[index].Apply(SetupInstallationStatus.Running);
     }
 
     private void SetBusy(bool busy)

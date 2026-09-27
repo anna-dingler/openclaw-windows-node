@@ -25,8 +25,7 @@ public sealed class PairOperatorStep : SetupStep
             return StepResult.Terminal("No credential available for operator pairing");
 
         // Register gateway in registry (only once — reuse across retries)
-        var registry = new GatewayRegistry(ctx.DataDir, logger: new SetupOpenClawLogger(ctx.Logger));
-        registry.Load();
+        var registry = ctx.LoadSetupRegistry();
 
         string identityPath;
         if (!string.IsNullOrEmpty(ctx.GatewayRecordId))
@@ -55,7 +54,7 @@ public sealed class PairOperatorStep : SetupStep
 
             record = registry.AddOrUpdate(record);
             registry.SetActive(record.Id);
-            registry.Save();
+            ctx.SaveSetupRegistry(registry);
             ctx.GatewayRecordId = record.Id;
             identityPath = registry.GetIdentityDirectory(record.Id);
             ctx.Logger.Info($"Gateway record created: id={record.Id}");
@@ -508,8 +507,7 @@ public sealed class PairOperatorStep : SetupStep
 
     public override async Task RollbackAsync(SetupContext ctx, CancellationToken ct)
     {
-        var registry = new GatewayRegistry(ctx.DataDir, logger: new SetupOpenClawLogger(ctx.Logger));
-        registry.Load();
+        var registry = ctx.LoadSetupRegistry();
 
         // Find all local gateway records to remove (mirrors old uninstall step 6a)
         var localRecords = registry.GetAll()
@@ -529,7 +527,7 @@ public sealed class PairOperatorStep : SetupStep
                 }
                 registry.Remove(record.Id);
             }
-            registry.Save();
+            ctx.SaveSetupRegistry(registry);
             ctx.Logger.Info($"[Uninstall] Removed {localRecords.Count} local gateway record(s)");
         }
         else

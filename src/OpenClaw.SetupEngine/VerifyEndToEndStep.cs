@@ -203,7 +203,8 @@ public sealed class VerifyEndToEndStep : SetupStep
     {
         var settingsPath = Path.Combine(ctx.DataDir, "settings.json");
         ctx.Config.Settings.ApplyCapabilities(ctx.Config.Capabilities);
-        ctx.Config.Settings.MergeIntoSettingsFile(settingsPath);
+        if (ctx.PersistTraySettings is { } persist) persist(ctx.Config.Settings);
+        else ctx.Config.Settings.MergeIntoSettingsFile(settingsPath);
         ctx.Logger.Info($"Wrote settings.json: EnableNodeMode={ctx.Config.Settings.EnableNodeMode}");
     }
 
@@ -212,8 +213,7 @@ public sealed class VerifyEndToEndStep : SetupStep
         if (string.IsNullOrWhiteSpace(ctx.GatewayRecordId))
             return;
 
-        var registry = new GatewayRegistry(ctx.DataDir, logger: new SetupOpenClawLogger(ctx.Logger));
-        registry.Load();
+        var registry = ctx.LoadSetupRegistry();
         var record = registry.GetById(ctx.GatewayRecordId);
         if (record is null)
             return;
@@ -227,7 +227,7 @@ public sealed class VerifyEndToEndStep : SetupStep
         {
             BootstrapToken = null
         });
-        registry.Save();
+        ctx.SaveSetupRegistry(registry);
         ctx.Logger.Info("Cleared persisted bootstrap gateway credential after device pairing");
     }
 

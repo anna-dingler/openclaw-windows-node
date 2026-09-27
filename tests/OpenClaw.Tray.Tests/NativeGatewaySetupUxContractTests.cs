@@ -35,7 +35,7 @@ public sealed class NativeGatewaySetupUxContractTests
         var failure = source[catchStart..finallyStart];
         Assert.Contains("or AggregateException", failure);
         Assert.Contains("Trace.TraceError", failure);
-        Assert.Contains("SetStatus(StepStatus.Failed)", failure);
+        Assert.Contains("Apply(SetupInstallationStatus.Failed)", failure);
         Assert.Contains("SetupLogger.Sanitize(ex.Message)", failure);
         Assert.Contains("RetryButton.Visibility = Visibility.Visible", failure);
     }
@@ -46,7 +46,8 @@ public sealed class NativeGatewaySetupUxContractTests
         var root = TestRepositoryPaths.GetRepositoryRoot();
         var pages = Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages");
         var welcome = File.ReadAllText(Path.Combine(pages, "WelcomePage.xaml.cs"));
-        Assert.Contains("NavigateToNativeCapabilities()", welcome);
+        Assert.Contains("SelectGatewayRoute(SetupGatewayRoute.Native)", welcome);
+        Assert.Contains("NavigateToCapabilities()", welcome);
         var xaml = File.ReadAllText(Path.Combine(pages, "NativeGatewaySetupPage.xaml"));
         Assert.DoesNotContain("Not isolated", xaml);
         Assert.DoesNotContain("ConsentCheck", xaml);
@@ -60,9 +61,9 @@ public sealed class NativeGatewaySetupUxContractTests
         Assert.Contains("eligibility != NativeGatewayEligibility.Available", source);
         Assert.Contains("Loaded += (_, _) => StartOperation()", source);
         Assert.Contains("await NativeGatewayPackageAcquisition.EnsureAsync(", source);
-        Assert.Contains("new StepRow(", source);
-        Assert.Contains("StepStatus.Done", source);
-        Assert.Contains("StepStatus.Failed", source);
+        Assert.Contains("new SetupPhaseStatus()", source);
+        Assert.Contains("SetupInstallationStatus.Complete", source);
+        Assert.Contains("SetupInstallationStatus.Failed", source);
         Assert.Contains("NativeGatewaySetupService", source);
         Assert.Contains("Windows.System.Launcher.LaunchUriAsync(uri)", source);
         Assert.DoesNotContain("LaunchFileAsync", source);
@@ -97,15 +98,15 @@ public sealed class NativeGatewaySetupUxContractTests
         var native = primary.Elements().First();
         Assert.Equal("False", (string?)native.Attribute("IsEnabled"));
         Assert.Contains(native.Descendants(), element =>
-            (string?)element.Attribute(names + "Name") == "NativeRecommendedBadge");
+            (string?)element.Attribute(names + "Uid") == "Onboarding_Native_Recommended");
         Assert.Empty(document.Descendants(xaml + "Expander"));
         Assert.DoesNotContain(document.Descendants(), element =>
             (string?)element.Attribute("Content") == "Check again");
         var wsl = primary.Elements(xaml + "ListViewItem").ElementAt(1);
         Assert.Null(wsl.Attribute("Visibility"));
         Assert.Null(wsl.Attribute("IsEnabled"));
-        Assert.DoesNotContain(wsl.Descendants(), element =>
-            (string?)element.Attribute("Text") == "Recommended");
+        Assert.Contains(wsl.Descendants(), element =>
+            (string?)element.Attribute(names + "Name") == "WslRecommendedBadge");
         var source = File.ReadAllText(Path.Combine(pages, "WelcomePage.xaml.cs"));
         Assert.Contains("window.GetNativeGatewayEligibilityAsync()", source);
         Assert.Contains("NativeGatewaySetupEligibility.ResolveSelection", source);
@@ -114,6 +115,7 @@ public sealed class NativeGatewaySetupUxContractTests
         Assert.Contains("ms-settings:windowsupdate", source);
         Assert.Contains("ShowWindowsUpdateError()", source);
         Assert.Contains("NativeGatewayEligibility.Available", source);
+        Assert.Contains("WslRecommendedBadge.Visibility = available ? Visibility.Collapsed : Visibility.Visible", source);
         Assert.Contains("GatewaySetupChoice.Wsl => InstallChoice", source);
         Assert.Contains("ReferenceEquals(GatewayChoiceSelector.SelectedItem, InstallChoice)", source);
         Assert.Contains("_selectedChoice is GatewaySetupChoice.Existing or GatewaySetupChoice.Wsl", source);
@@ -135,20 +137,9 @@ public sealed class NativeGatewaySetupUxContractTests
         XElement Named(string name) => document.Descendants().Single(
             element => (string?)element.Attribute(names + "Name") == name);
         var native = Named("NativeChoice");
-        var badge = Named("NativeRecommendedBadge");
         Assert.Equal("False", (string?)native.Attribute("IsEnabled"));
-        Assert.Contains(native, badge.Ancestors());
-        Assert.Null(badge.Attribute("Visibility"));
-        Assert.Equal("{ThemeResource TextFillColorDisabledBrush}", (string?)badge.Attribute("BorderBrush"));
-        foreach (var name in new[] { "NativeTitle", "NativeDescription", "NativeRecommendedText" })
-            Assert.Equal("{ThemeResource TextFillColorDisabledBrush}", (string?)Named(name).Attribute("Foreground"));
-        Assert.Equal("{ThemeResource AccentFillColorDisabledBrush}", (string?)Named("NativeIconBackground").Attribute("Background"));
-        Assert.Equal("{ThemeResource TextOnAccentFillColorDisabledBrush}", (string?)Named("NativeIcon").Attribute("Foreground"));
-        var enabledSetters = Named("NativeEnabled").Descendants().Where(element => element.Name.LocalName == "Setter").ToArray();
-        Assert.Equal(6, enabledSetters.Length);
-        Assert.Contains(enabledSetters, setter =>
-            (string?)setter.Attribute("Target") == "NativeRecommendedText.Foreground" &&
-            (string?)setter.Attribute("Value") == "{ThemeResource AccentTextFillColorPrimaryBrush}");
+        Assert.Contains(native.Descendants(), element =>
+            (string?)element.Attribute(names + "Uid") == "Onboarding_Native_Recommended");
         var card = Named("NativeSupportCard");
         var selector = Named("GatewayChoiceSelector");
         Assert.Contains(card, selector.ElementsAfterSelf());
@@ -158,10 +149,8 @@ public sealed class NativeGatewaySetupUxContractTests
         Assert.Contains(card, Named("WindowsUpdateButton").Ancestors());
         Assert.DoesNotContain(native, card.Ancestors());
         var source = File.ReadAllText(Path.Combine(pages, "WelcomePage.xaml.cs"));
-        Assert.DoesNotContain("NativeRecommendedBadge.Visibility", source);
         Assert.Contains("NativeChoice.IsEnabled = available", source);
-        Assert.Contains("VisualStateManager.GoToState(this, \"NativeDisabled\", false)", source);
-        Assert.Contains("VisualStateManager.GoToState(this, available ? \"NativeEnabled\" : \"NativeDisabled\", false)", source);
+        Assert.Contains("WslRecommendedBadge.Visibility = available ? Visibility.Collapsed : Visibility.Visible", source);
         Assert.Contains("NativeSupportCard.Visibility = available ? Visibility.Collapsed : Visibility.Visible", source);
         Assert.Contains("\", \" + SetupLocalization.GetString(\"Onboarding_Native_Recommended.Text\")", source);
     }
@@ -176,18 +165,14 @@ public sealed class NativeGatewaySetupUxContractTests
         var resources = XDocument.Load(Path.Combine(root, "src", "OpenClaw.Tray.WinUI", "Strings", "en-us", "Resources.resw"))
             .Descendants("data").ToDictionary(
                 element => (string)element.Attribute("name")!, element => element.Element("value")?.Value);
-        foreach (var (choiceName, uid, expected) in new[]
-        {
-            ("NativeChoice", "Onboarding_Native_Title", "Install a local native gateway"),
-            ("InstallChoice", "Onboarding_Wsl_Title", "Install a local WSL gateway"),
-        })
-        {
-            var choice = document.Descendants().Single(element => (string?)element.Attribute(names + "Name") == choiceName);
-            var title = choice.Descendants().Single(element => (string?)element.Attribute(names + "Uid") == uid);
-            Assert.Equal(expected, (string?)title.Attribute("Text"));
-            Assert.Equal(expected, (string?)choice.Attribute("AutomationProperties.Name"));
-            Assert.Equal(expected, resources[uid + ".Text"]);
-        }
+        var choice = document.Descendants().Single(element => (string?)element.Attribute(names + "Name") == "NativeChoice");
+        var title = choice.Descendants().Single(element =>
+            (string?)element.Attribute(names + "Uid") == "Onboarding_Native_Title");
+        Assert.Equal("Install a local native gateway", (string?)title.Attribute("Text"));
+        Assert.Equal("Install a local native gateway", resources["Onboarding_Native_Title.Text"]);
+        var wsl = document.Descendants().Single(element => (string?)element.Attribute(names + "Name") == "InstallChoice");
+        Assert.Equal("Install a local Gateway (WSL), recommended", (string?)wsl.Attribute("AutomationProperties.Name"));
+        Assert.Equal("Install a local Gateway (WSL)", resources["Onboarding_Copy_GatewayLocalTitle.Text"]);
         Assert.Equal("Install a local, MXC contained OpenClaw gateway", resources["Onboarding_Native_Description.Text"]);
         var source = File.ReadAllText(Path.Combine(pages, "WelcomePage.xaml.cs"));
         Assert.Contains("AutomationProperties.SetName(InstallChoice, SetupLocalization.GetString(\"Onboarding_Wsl_Title.Text\"))", source);
@@ -200,14 +185,15 @@ public sealed class NativeGatewaySetupUxContractTests
         var document = XDocument.Load(Path.Combine(pages, "WelcomePage.xaml"));
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
         XNamespace names = "http://schemas.microsoft.com/winfx/2006/xaml";
-        var heading = document.Descendants(xaml + "Grid")
-            .Single(element => (string?)element.Attribute(names + "Name") == "NativeHeading");
-        Assert.Equal("*,Auto", (string?)heading.Attribute("ColumnDefinitions"));
+        var native = document.Descendants(xaml + "ListViewItem")
+            .Single(element => (string?)element.Attribute(names + "Name") == "NativeChoice");
+        var heading = native.Descendants(xaml + "StackPanel")
+            .Single(element => (string?)element.Attribute("Orientation") == "Horizontal" &&
+                element.Elements().Any(child => (string?)child.Attribute(names + "Uid") == "Onboarding_Native_Title"));
         Assert.Contains(heading.Elements(), element =>
             (string?)element.Attribute(names + "Uid") == "Onboarding_Native_Title");
-        var badge = heading.Elements().Single(element =>
-            (string?)element.Attribute(names + "Name") == "NativeRecommendedBadge");
-        Assert.Equal("1", (string?)badge.Attribute("Grid.Column"));
+        Assert.Contains(heading.Descendants(), element =>
+            (string?)element.Attribute(names + "Uid") == "Onboarding_Native_Recommended");
         var description = heading.ElementsAfterSelf().First();
         Assert.Equal("Onboarding_Native_Description", (string?)description.Attribute(names + "Uid"));
         Assert.Equal("Install a local, MXC contained OpenClaw gateway", (string?)description.Attribute("Text"));
@@ -236,7 +222,7 @@ public sealed class NativeGatewaySetupUxContractTests
         var host = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "NativeGatewaySetupHost.cs"));
         Assert.Contains("NativeSetupSession = session;", window);
         Assert.Contains("NavigateTo(typeof(WizardPage), _config)", window);
-        Assert.Contains("preserveStartupPreference || _nativeSetupCompleted", window);
+        Assert.Contains("ApplyStartupPreference: _startupRegistrationAllowed && _persistStartupPreferenceOnComplete", window);
         Assert.Contains("await wizardPage.CancelAndWaitAsync()", window);
         Assert.Contains("await ReleaseNativeSetupAsync()", window);
         Assert.Contains("await native.PrepareWizardAsync(native.LifetimeToken)", wizard);
@@ -327,22 +313,14 @@ public sealed class NativeGatewaySetupUxContractTests
     {
         var root = TestRepositoryPaths.GetRepositoryRoot();
         var source = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages", "CapabilitiesPage.xaml.cs"));
-        var nativeStart = source.IndexOf("if (_nativeGateway)", StringComparison.Ordinal);
-        var nativeEnd = source.IndexOf("TailscaleToggle.IsOn =", nativeStart, StringComparison.Ordinal);
-        var native = source[nativeStart..nativeEnd];
-        Assert.Contains("WslReviewContent.Visibility = Visibility.Collapsed", native);
-        Assert.Contains("NativeReviewContent.Visibility = Visibility.Visible", native);
-        Assert.Contains("return;", native);
-        Assert.True(source.IndexOf("_permissionsTask = BuildPermissionRows()", StringComparison.Ordinal) < nativeStart);
-        Assert.True(nativeEnd < source.IndexOf("() => InitializeLocalAiReviewAsync(", StringComparison.Ordinal));
-        Assert.Contains("if (_nativeGateway)\n                    SetupWindow.Active?.NavigateToNativeGatewaySetup();",
-            source.Replace("\r\n", "\n"));
-        var writeStart = source.IndexOf("private void WriteCapabilities()", StringComparison.Ordinal);
-        var writeEnd = source.IndexOf("private void ApplySetupReviewSummary", writeStart, StringComparison.Ordinal);
-        var write = source[writeStart..writeEnd];
-        Assert.Contains("config.Settings.ApplyCapabilities(caps)", write);
-        Assert.Contains("config.Settings.EnableNodeMode = true", write);
-        Assert.True(write.IndexOf("return;", StringComparison.Ordinal) < write.IndexOf("config.Tailscale.Enabled", StringComparison.Ordinal));
+        var window = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "SetupWindow.xaml.cs"));
+        var policy = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine", "OnboardingFlowPolicy.cs"));
+        Assert.Contains("SetupWindow.Active?.AccessDraft", source);
+        Assert.Contains("_draft.SetCapability(capability, toggle.IsOn)", source);
+        Assert.DoesNotContain("TailscaleToggle", source);
+        Assert.Contains("OnboardingAccessDestination.NativeGatewaySetup", window);
+        Assert.Contains("NavigateToNativeGatewaySetup()", window);
+        Assert.Contains("SetupGatewayRoute.Native => OnboardingAccessDestination.NativeGatewaySetup", policy);
     }
 
     [Fact]
@@ -370,8 +348,9 @@ public sealed class NativeGatewaySetupUxContractTests
         Assert.True(completion.IndexOf("await setupWindow.ReleaseNativeSetupAsync()", StringComparison.Ordinal) <
                     completion.IndexOf("setupWindow.NavigateToNativeComplete", StringComparison.Ordinal));
         var window = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "SetupWindow.xaml.cs"));
-        Assert.Contains("MergeCapabilitiesIntoSettingsFile(Path.Combine(_dataDir, \"settings.json\"))", window);
-        Assert.Contains("new CapabilitiesPageArgs(_config, false, false, NativeGateway: true)", window);
+        Assert.Contains("_persistStartupPreferenceOnComplete = false;", window);
+        Assert.Contains("SaveSetupChoices(AutoStartAfterSetup)", window);
+        Assert.Contains("NavigateToCapabilities(back: true)", window);
         var cancelStart = wizard.IndexOf("window.NavigateToNativeCapabilities()", StringComparison.Ordinal);
         Assert.True(cancelStart >= 0);
         Assert.DoesNotContain("window.NavigateToNativeGatewaySetup()", wizard);
