@@ -17,6 +17,12 @@ test('native proof preflight and both final-consumer workflows use one immutable
   const version=native.match(/node-version: '([^']+)'/)[1];
   assert.ok(initializer.includes("$result.nodeVersion -cne 'v"+version+"'"));
 });
+test('native proof selects packageManager from the nested consumer checkout',()=>{
+  const native=fs.readFileSync(new URL('../.github/workflows/browser-native-composed-proof.yml',import.meta.url),'utf8');
+  const setup=native.split('- uses: pnpm/action-setup@v4')[1].split('- uses:')[0];
+  assert.match(setup,/package_json_file: consumer\/package\.json/);
+  assert.doesNotMatch(setup,/^\s+version:/m);
+});
 test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
   for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {
     const observed=savedProfileCliObservation({code:1,body});

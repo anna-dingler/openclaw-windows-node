@@ -44,6 +44,7 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           # The pinned consumer packageManager is the only version authority.
+          package_json_file: consumer/package.json
           run_install: false
       - uses: actions/setup-dotnet@v5
         with:
