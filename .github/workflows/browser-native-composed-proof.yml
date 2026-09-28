@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: openclaw/openclaw
-          ref: bb2d479926adb23fb30737e2fd3e5af63969dc84
+          ref: 6cff547216bd3229446d7cc32a7dae667182ef51
           path: consumer
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -80,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ((git rev-parse HEAD).Trim() -cne 'bb2d479926adb23fb30737e2fd3e5af63969dc84') { throw 'Consumer revision mismatch.' }
+          if ((git rev-parse HEAD).Trim() -cne '6cff547216bd3229446d7cc32a7dae667182ef51') { throw 'Consumer revision mismatch.' }
           pnpm install --frozen-lockfile --store-dir "$env:COMPOSED_PRIVATE_ROOT/store" --package-import-method=copy
           if ($LASTEXITCODE -ne 0) { throw 'Pinned consumer dependency install failed.' }
           pnpm build:docker

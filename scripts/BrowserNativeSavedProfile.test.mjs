@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
-import { savedProfileFailure, savedProfileCliObservation, assertSavedProfileGenerationUnchanged } from './Test-BrowserNativeSavedProfile.mjs';
+import { savedProfileFailure, savedProfileCliObservation, assertSavedProfileGenerationUnchanged, assertMatchedForeignStore } from './Test-BrowserNativeSavedProfile.mjs';
 
 test('native proof preflight and both final-consumer workflows use one immutable pin',()=>{
   const source=fs.readFileSync(new URL('./Test-BrowserNativeComposition.mjs',import.meta.url),'utf8');
@@ -34,6 +34,14 @@ test('idempotent setup keeps the admitted generation and creates no directory',(
   assert.doesNotThrow(()=>assertSavedProfileGenerationUnchanged('generation-a','generation-a',[]));
   assert.throws(()=>assertSavedProfileGenerationUnchanged('generation-a','generation-b',[]));
   assert.throws(()=>assertSavedProfileGenerationUnchanged('generation-a','generation-a',['new-generation']));
+});
+test('foreign Store proof requires a matching live native descriptor and typed refusal',()=>{
+  const matching={ok:false,code:'foreign_registration',registration:'owned',mode:'native-windows-cli',store:'foreign',installation:{generation:'expected'}};
+  assert.doesNotThrow(()=>assertMatchedForeignStore(matching,'expected'));
+  for(const patch of [{ok:true},{code:'context_conflict'},{registration:'foreign'},{mode:'companion-managed-wsl'},{store:'requested'},{installation:null},{installation:{generation:'other'}}]) {
+    assert.throws(()=>assertMatchedForeignStore({...matching,...patch},'expected'));
+  }
+  assert.throws(()=>assertMatchedForeignStore({...matching,installation:null},undefined));
 });
 test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
   for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {

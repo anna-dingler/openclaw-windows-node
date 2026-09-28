@@ -9,7 +9,7 @@ import { recordCompletion } from './BrowserNativeProofTiming.mjs';
 import { savedProfileAcceptance } from './Test-BrowserNativeSavedProfile.mjs';
 
 const producerSha = process.env.GITHUB_SHA;
-const consumerSha = 'bb2d479926adb23fb30737e2fd3e5af63969dc84';
+const consumerSha = '6cff547216bd3229446d7cc32a7dae667182ef51';
 const origin = 'chrome-extension://kcdjddhmeafeomebliikmbpblkmkfoig/';
 const nonce = 'AAAAAAAAAAAAAAAAAAAAAA';
 const fixtureConfig = { gateway: { mode: 'local', port: 18789 }, browser: { enabled: true, profiles: { chrome: { driver: 'extension' } } } };
@@ -335,7 +335,7 @@ try {
     assert.equal(await stateSnapshot(context.stateDir),eofBefore,'retired_variant_state_effect');
     check('retired_valid_nonce_parser_variants_cannot_bypass_activation');
     stage='canonical-saved-profile-acceptance';
-    await savedProfileAcceptance({fixture,context,executable,baseEnv,exchange,manage,powershell,frame,response,origin,nonce,check,receipt,withFrozenNative});
+    await savedProfileAcceptance({fixture,context,executable,baseEnv,exchange,manage,powershell,frame,response,origin,nonce,check,receipt,withFrozenNative,stateSnapshot});
     receipt.status='passed';
   }
 } catch (error) {
