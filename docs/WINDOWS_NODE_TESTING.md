@@ -30,6 +30,15 @@ Short version: run required tests, collect a closeout proof pass with `.\run-app
 
 ### Reactor preview.12 compatibility proof
 
+The [fixture Gateway harness](GATEWAY_FIXTURE_TESTING.md) can populate the real
+app without a running WSL Gateway or AI provider. Run
+`.\scripts\run-gateway-fixture.ps1 -AppPath '<built-app.exe>'` to explore, or
+`.\scripts\test-gateway-fixture.ps1 -AppPath '<built-app.exe>'` for automated
+picker, 240-message final-item, navigation and delayed-history proof. Use a
+non-Dev Release binary as well as Debug; an empty page or MCP snapshot is not
+equivalent to visible native history proof. Streaming still needs separate
+coverage.
+
 Both Reactor packages are temporarily pinned to `0.1.0-preview.12` while
 [microsoft/microsoft-ui-xaml#11865](https://github.com/microsoft/microsoft-ui-xaml/issues/11865)
 awaits a released and validated fix. `ReactorChatTimeline.BuildSafeMarkdown`
@@ -56,6 +65,21 @@ owns the package upgrade and removal gates.
 ### New command MCP contract
 
 Every new Windows node call must be exposed through local MCP and `winnode`: register the capability, update `McpToolBridge.CommandDescriptions`, update `.agents/skills/winnode/SKILL.md`, add focused tests, and prove discovery/invocation with `winnode` or raw MCP JSON-RPC.
+
+### Permissions exec policy editor
+
+The Permissions page shows the `main`, wildcard (`*`), then defaults cascade
+and lists both wildcard and main allowlist entries. Removing a displayed entry
+edits its original bucket, not every matching pattern. A duplicate in the other
+bucket remains effective until it is removed separately. Adding a rule writes
+to `main` and preserves inherited wildcard security and ask settings, except
+for the existing transition from effective Deny to a main allowlist.
+
+Use an isolated profile for visual proof: seed distinguishable wildcard and
+main rules, remove the wildcard row, then reopen the page and confirm only
+that entry is gone from its original bucket. Also check equal patterns in both
+buckets and adding a main rule while inheriting wildcard Full. These editor
+checks do not require executing a command and are not MXC containment proof.
 
 ### 1. Settings Toggle
 - Verify the toggle appears in Settings under "ADVANCED"
