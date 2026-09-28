@@ -36,18 +36,24 @@ upgrade behavior require real Windows proof before claiming MSIX parity.
 
 ## Ownership and call graph
 
-1. Chrome launches `tools/browser-bootstrap/OpenClaw.BrowserNativeHost.exe`.
+1. Chrome launches an immutable generation copy of the packaged
+   `tools/browser-bootstrap/OpenClaw.BrowserBootstrap.exe`. `NativeTransport` and
    `BrowserNativeProtocol` validates the exact origin, strict v1 request schema,
    canonical 16-32-byte nonce, UTF-8, and four-byte little-endian framing.
    Requests are capped at 4 KiB. Raw standard streams are binary, not text writers.
-2. `BrowserNativeRegistration` verifies the per-user manifest, exact executable
-   and origin. It inspects both registry views and machine/user locations before
-   creating the HKCU 32-bit native-host registration, preserving foreign entries.
-3. The executable sends one bounded request through the Windows current-user-only
-   named pipe `OpenClawTray.BrowserBootstrap.v1`. Both pipe endpoints use
-   `PipeOptions.CurrentUserOnly`. The process does not read saved gateway tokens,
-   settings credentials, or a copied bearer secret. Same-user arbitrary code is
-   outside this boundary, as with Chrome's native messaging launch itself.
+2. `RegistrationService` delegates generation admission and registry mutation to
+   `WindowsRegistrationPlatform` and `GenerationStore`. The four immutable
+   generation files, current SID, ACLs, hashes, exact runtime and origin must
+   validate. Both registry views and machine/user locations are inspected;
+   foreign or conflicting registrations are preserved. Installer, Companion and
+   canonical CLI use this same bounded management owner.
+3. For `companion-managed-wsl`, the executable sends one bounded request through
+   the Windows current-user-only named pipe `OpenClawTray.BrowserBootstrap.v1`.
+   Both endpoints use `PipeOptions.CurrentUserOnly`. Explicit
+   `native-windows-cli` bindings instead invoke their admitted Windows Node/CLI;
+   neither backend falls back to the other. The helper does not read saved
+   gateway tokens, settings credentials, or a copied bearer secret. Same-user
+   arbitrary code is outside this boundary, as with Chrome native messaging.
 4. `BrowserBootstrapHost` composes `GatewayRegistry`,
    `IGatewayConnectionManager`, `SettingsManager` and
    `ManagedLocalGatewayPortProvenanceService`. `BrowserBootstrapService` pins the
@@ -62,6 +68,11 @@ upgrade behavior require real Windows proof before claiming MSIX parity.
    environment against the default installed user profile and refuses custom paths.
    stdout/stderr are bounded, secret-bearing stdout remains only
    in memory, and neither is passed through SetupEngine's command-output logger.
+   A request-owned transient user-systemd unit uses READY/PERMIT/RESULT/SETTLED
+   framing and stdin revocation. Positive guest settlement plus Windows process
+   and drain joins are required before ownership release. The request deadline
+   remains 15 seconds and soft cleanup budget 2 seconds. Lost acknowledgment is
+   UNKNOWN/BUSY, not permission to retire; Windows exit alone is not settlement.
 6. The canonical TypeScript CLI owns relay-token generation and pairing encoding.
    Windows validates local topology, gateway port, loopback route and gateway hint
    before returning the nonce-bound native response.
@@ -111,7 +122,7 @@ Baseline remains `./build.ps1`, full Shared tests and full Tray tests. Add:
 dotnet test tests/OpenClaw.Shared.Tests --filter "FullyQualifiedName~BrowserNativeProtocolTests|FullyQualifiedName~BrowserBootstrapPipeTests"
 dotnet test tests/OpenClaw.Connection.Tests --filter FullyQualifiedName~BrowserBootstrapServiceTests
 dotnet test tests/OpenClaw.Tray.Tests --filter FullyQualifiedName~BrowserBootstrapIntegrationContractTests
-./scripts/Test-BrowserNativeHost.ps1 -ExecutablePath publish/tools/browser-bootstrap/OpenClaw.BrowserNativeHost.exe
+./scripts/Test-BrowserNativeHost.ps1 -ExecutablePath publish/tools/browser-bootstrap/OpenClaw.BrowserBootstrap.exe
 ```
 
 The executable proof runs in the x64 and ARM64 publish jobs. It refuses existing

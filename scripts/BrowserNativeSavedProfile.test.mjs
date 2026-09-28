@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
 import { savedProfileFailure, savedProfileCliObservation } from './Test-BrowserNativeSavedProfile.mjs';
 
+test('native proof preflight and both final-consumer workflows use one immutable pin',()=>{
+  const source=fs.readFileSync(new URL('./Test-BrowserNativeComposition.mjs',import.meta.url),'utf8');
+  const initializer=fs.readFileSync(new URL('./Initialize-BrowserNativeComposition.ps1',import.meta.url),'utf8');
+  const native=fs.readFileSync(new URL('../.github/workflows/browser-native-composed-proof.yml',import.meta.url),'utf8');
+  const wsl=fs.readFileSync(new URL('../.github/workflows/browser-wsl-owner-proof.yml',import.meta.url),'utf8');
+  const pin=source.match(/const consumerSha = '([a-f0-9]{40})'/)[1];
+  assert.equal(initializer.match(/consumerSha='([a-f0-9]{40})'/)[1],pin);
+  for(const workflow of [native,wsl]) {
+    assert.equal(workflow.match(/ref: ([a-f0-9]{40})/)[1],pin);
+    assert.ok(workflow.includes(pin));
+  }
+  const version=native.match(/node-version: '([^']+)'/)[1];
+  assert.ok(initializer.includes("$result.nodeVersion -cne 'v"+version+"'"));
+});
 test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
   for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {
     const observed=savedProfileCliObservation({code:1,body});

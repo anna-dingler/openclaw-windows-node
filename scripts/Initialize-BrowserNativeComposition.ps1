@@ -1,7 +1,7 @@
 param([Parameter(Mandatory)][string]$Consumer, [Parameter(Mandatory)][string]$Receipt)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$result = [ordered]@{ status='failed'; stage='preflight'; consumerSha='57201e3e26968ff686bae61d5de8e4e54308a6b6' }
+$result = [ordered]@{ status='failed'; stage='preflight'; consumerSha='bb2d479926adb23fb30737e2fd3e5af63969dc84' }
 try {
     $result.host = @{ windows=[bool]$IsWindows; githubActions=($env:GITHUB_ACTIONS -ceq 'true'); githubHosted=($env:RUNNER_ENVIRONMENT -ceq 'github-hosted') }
     if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or !$IsWindows) { throw 'Disposable Windows required' }
@@ -15,7 +15,7 @@ try {
     $node = (& $node -e 'process.stdout.write(require("node:fs").realpathSync(process.execPath))')
     if ($LASTEXITCODE -ne 0) { throw 'Node canonicalization failed' }
     $result.nodeVersion = (& $node --version)
-    if ($LASTEXITCODE -ne 0 -or $result.nodeVersion -cne 'v24.16.0') { throw 'Installed Node version mismatch' }
+    if ($LASTEXITCODE -ne 0 -or $result.nodeVersion -cne 'v24.19.0') { throw 'Installed Node version mismatch' }
     $result.stage = 'canonical-cli'
     $cli = (& $node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' (Join-Path $Consumer 'openclaw.mjs'))
     if ($LASTEXITCODE -ne 0) { throw 'CLI canonicalization failed' }
