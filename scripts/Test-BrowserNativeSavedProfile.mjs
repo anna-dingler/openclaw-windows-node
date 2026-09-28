@@ -22,6 +22,11 @@ export function savedProfileCliObservation(result) {
     installedCopyProjection:body!==null&&typeof body==='object'&&Object.hasOwn(body,'installedCopy'),
     manualSetupRequired:body?.manualSetupRequired===true};
 }
+// Matching binding and producer bytes are reused by the C# generation owner.
+export function assertSavedProfileGenerationUnchanged(before,after,added) {
+  assert.equal(added.length,0);
+  assert.equal(after,before);
+}
 export async function savedProfileAcceptance(h) {
   const {fixture,context,executable,baseEnv,exchange,manage,powershell,frame,response,origin,nonce,check,receipt}=h;
   assert.equal(process.platform,'win32');assert.equal(process.env.RUNNER_ENVIRONMENT,'github-hosted');
@@ -61,6 +66,24 @@ export async function savedProfileAcceptance(h) {
     receipt.savedProfileSeed=savedProfileCliObservation(seed);
     assert.equal(receipt.savedProfileSeed.ownedWorkProfile,true);
     let active=await descriptor();assert.equal(active.inspected.store,'missing');
+    // Seed retained history through the sole owner, not by requiring a no-op install to rotate.
+    // Restore normal canonical origins before any pairing or selector-free acceptance checks.
+    const retainedWorkManifest=active.inspected.installation.manifestPath;
+    const retainedWorkGeneration=active.inspected.installation.generation;
+    const canonicalOrigins=[...active.binding.expectedOrigins];
+    assert.ok(canonicalOrigins.length>1&&canonicalOrigins.includes(origin));
+    stage='history_narrow';
+    const narrowed=await manage({...active.request,action:'install',expectedOrigins:[origin]});
+    receipt.savedProfileHistory={narrowed:narrowed.ok===true,canonicalRestored:false};
+    assert.equal(narrowed.ok,true);assert.notEqual(narrowed.installation.generation,retainedWorkGeneration);
+    stage='history_restore';
+    const restored=await cli(['install','--browser-profile','work','--no-store','--wait-ms','1000']);
+    assert.equal(savedProfileCliObservation(restored).ownedWorkProfile,true);
+    active=await descriptor();assert.equal(active.inspected.store,'missing');
+    assert.notEqual(active.inspected.installation.generation,retainedWorkGeneration);
+    assert.notEqual(active.inspected.installation.generation,narrowed.installation.generation);
+    assert.deepEqual(active.binding.expectedOrigins,canonicalOrigins);
+    receipt.savedProfileHistory.canonicalRestored=true;
     stage='initial_pairing';
     const initialPair=await bootstrap(active);assert.equal(initialPair.ok,true);
     const pairingUrl=new URL(initialPair.pairingString);
@@ -75,7 +98,7 @@ export async function savedProfileAcceptance(h) {
       assert.equal(result.body.installation.nativeHostRegistered,true);assert.equal(result.body.installation.installRequested,false);
       active=await descriptor();assert.equal(active.binding.nativeWindows.browserProfile,'work');assert.equal(active.inspected.store,'missing');
       const added=(await fs.readdir(before.root)).filter(x=>!dirs.has(x));
-      assert.equal(added.length,action==='install'?1:0);
+      assertSavedProfileGenerationUnchanged(before.inspected.installation.generation,active.inspected.installation.generation,added);
       assert.equal((await bootstrap(active)).pairingString,initialPair.pairingString);
     }
     check('canonical_cli_saved_work_profile_recovered_without_pairing_or_optout_changes');
@@ -136,12 +159,11 @@ export async function savedProfileAcceptance(h) {
     check('unknown_busy_inventory_cannot_select_profile_or_mutate');
     active=await descriptor();
     stage='mixed_generations';
-    let retained;
-    for(const name of await fs.readdir(active.root)) {
-      const file=path.join(active.root,name,'OpenClaw.BrowserBootstrap.binding.json');
-      try { const b=JSON.parse(await fs.readFile(file,'utf8'));if(b.nativeWindows?.stateDir.toLowerCase()===stateDir.toLowerCase()&&b.manifestPath!==active.inspected.installation.manifestPath){retained=b.manifestPath;break;} } catch {}
-    }
-    assert.ok(retained,'retained owned generation fixture required');
+    const retained=retainedWorkManifest;
+    assert.notEqual(retained,active.inspected.installation.manifestPath);
+    const retainedBinding=JSON.parse(await fs.readFile(path.join(path.dirname(retained),'OpenClaw.BrowserBootstrap.binding.json'),'utf8'));
+    assert.deepEqual(retainedBinding.nativeWindows,active.binding.nativeWindows);
+    assert.deepEqual(retainedBinding.expectedOrigins,active.binding.expectedOrigins);
     function replaceChromium(expected,next) {
       const payload=Buffer.from(JSON.stringify({expected,next})).toString('base64');
       powershell("$ErrorActionPreference='Stop';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+payload+"'))|ConvertFrom-Json;$k=[Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software/Chromium/NativeMessagingHosts/ai.openclaw.browser_bootstrap'.Replace('/',[IO.Path]::DirectorySeparatorChar),$true);try{if([string]$k.GetValue('')-cne $p.expected){throw 'fixture ownership changed'};$k.SetValue('',$p.next,[Microsoft.Win32.RegistryValueKind]::String)}finally{$k.Dispose()}");

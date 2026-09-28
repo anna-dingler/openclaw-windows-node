@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
-import { savedProfileFailure, savedProfileCliObservation } from './Test-BrowserNativeSavedProfile.mjs';
+import { savedProfileFailure, savedProfileCliObservation, assertSavedProfileGenerationUnchanged } from './Test-BrowserNativeSavedProfile.mjs';
 
 test('native proof preflight and both final-consumer workflows use one immutable pin',()=>{
   const source=fs.readFileSync(new URL('./Test-BrowserNativeComposition.mjs',import.meta.url),'utf8');
@@ -29,6 +29,11 @@ test('every saved-profile CLI wait respects the canonical 1000-120000 ms range',
   assert.ok(waits.length>0);
   assert.equal(waits.length,[...source.matchAll(/'--wait-ms'/g)].length);
   assert.ok(waits.every(wait=>wait>=1000&&wait<=120000));
+});
+test('idempotent setup keeps the admitted generation and creates no directory',()=>{
+  assert.doesNotThrow(()=>assertSavedProfileGenerationUnchanged('generation-a','generation-a',[]));
+  assert.throws(()=>assertSavedProfileGenerationUnchanged('generation-a','generation-b',[]));
+  assert.throws(()=>assertSavedProfileGenerationUnchanged('generation-a','generation-a',['new-generation']));
 });
 test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
   for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {

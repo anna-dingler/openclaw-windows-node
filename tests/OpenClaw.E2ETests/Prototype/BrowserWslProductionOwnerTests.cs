@@ -27,24 +27,37 @@ public sealed class BrowserWslProductionOwnerTests
         var receipt=Environment.GetEnvironmentVariable("OPENCLAW_WSL_OWNER_RECEIPT")!;
         var fixture=new E2ESetupFixture();var stdout=Console.Out;var stderr=Console.Error;
         bool installed=false,restored=false,disposed=false,gatewayUnchanged=false;
+        string fixtureStage="initialize";
+        object? fixtureFailure=null;
+        BrowserWslSetupFailure? setupFailure=null;
         Console.SetOut(TextWriter.Null);Console.SetError(TextWriter.Null);
         try
         {
-            await fixture.InitializeAsync();Assert.Null(fixture.SetupError);await fixture.StopTrayAsync();
+            await fixture.InitializeAsync();Assert.Null(fixture.SetupError);
+            fixtureStage="stop_tray";await fixture.StopTrayAsync();
+            fixtureStage="gateway_identity";
             _gatewayPid=long.Parse((await Guest(fixture,"systemctl --user show openclaw-gateway.service -p MainPID --value")).Trim());
             Assert.True(_gatewayPid>1);
             _root="/home/openclaw/.openclaw/owner-proof-"+Guid.NewGuid().ToString("N");
-            await EarlyEof(fixture);
-            await RunCase(fixture,"real_cli");
-            installed=true;
+            fixtureStage="early_stdin_eof";await EarlyEof(fixture);
+            fixtureStage="real_cli";await RunCase(fixture,"real_cli");
+            fixtureStage="install_synthetic_cli";installed=true;
             await Guest(fixture,$"umask 077; mkdir '{_root}'; if test -e '{Cli}' || test -L '{Cli}'; then mv '{Cli}' '{_root}/original'; fi");
+            fixtureStage="synthetic_cases";
             foreach(var name in new[]{"normal_setsid","caller_cancel","deadline","forced_client_exit"})
             {
                 try{await RunCase(fixture,name);}catch(Exception e){_errors.Add(name+":"+e.GetType().Name);}
             }
+            fixtureStage="gateway_postcheck";
             gatewayUnchanged=(await Guest(fixture,"systemctl --user show openclaw-gateway.service -p MainPID --value")).Trim()==_gatewayPid.ToString();
         }
-        catch(Exception e){_errors.Add("fixture:"+e.GetType().Name);}
+        catch(Exception e)
+        {
+            _errors.Add("fixture:"+e.GetType().Name);
+            fixtureFailure=new{stage=fixtureStage,setupReportedError=fixture.SetupError is not null};
+            if(fixtureStage=="initialize")
+                setupFailure=BrowserWslSetupDiagnostics.Read(Path.Combine(fixture.ArtifactDir,"setup-engine.jsonl"));
+        }
         finally
         {
             if(installed)try
@@ -64,7 +77,7 @@ public sealed class BrowserWslProductionOwnerTests
                 productionAssemblySha256=Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(assembly.Location))).ToLowerInvariant(),
                 embeddedBrokerSha256=Convert.ToHexString(hash.ComputeHash(broker)).ToLowerInvariant(),
                 scope="actual BrowserBootstrapWslCommand plus unchanged source-linked registration owners; synthetic native inventory/real mutex, not shipping Chrome helper or registry proof",
-                cases=_cases,errors=_errors,gatewayUnchanged,originalCliRestored=restored,ownedFixtureDisposed=disposed,
+                cases=_cases,errors=_errors,fixtureFailure,setupFailure,gatewayUnchanged,originalCliRestored=restored,ownedFixtureDisposed=disposed,
                 status=_errors.Count==0&&_cases.Count==6&&restored&&disposed&&gatewayUnchanged?"production_owner_proof_passed":"production_owner_proof_failed"
             },new JsonSerializerOptions{WriteIndented=true}));
         }
