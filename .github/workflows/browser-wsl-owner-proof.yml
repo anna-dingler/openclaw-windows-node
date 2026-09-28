@@ -99,7 +99,7 @@ jobs:
           # Production remains on its original reviewed baseline; fixture evolution has its own reviewed pin.
           git diff --exit-code edd93f4998528cc0362443067db95a1c822e4cf1 HEAD -- src/OpenClaw.BrowserBootstrap src/OpenClaw.BrowserBootstrap.Contracts src/OpenClaw.Shared/Browser
           if ($LASTEXITCODE -ne 0) { throw 'Frozen native production changed.' }
-          git diff --exit-code b926e7ab6a13157cc664db08332ccd2d410b40d4 HEAD -- .github/workflows/browser-native-composed-proof.yml scripts/Test-BrowserNativeComposition.mjs scripts/Initialize-BrowserNativeComposition.ps1 scripts/Test-BrowserNativeSavedProfile.mjs scripts/BrowserNativeSavedProfile.test.mjs scripts/BrowserNativeProofTiming.mjs scripts/BrowserNativeProofTiming.test.mjs scripts/Control-BrowserNativeProofChild.ps1 scripts/BrowserNativePathAudit.cs
+          git diff --exit-code 9e650dd14d7cd50626129b39005b77929b7c49cc HEAD -- .github/workflows/browser-native-composed-proof.yml scripts/Test-BrowserNativeComposition.mjs scripts/Initialize-BrowserNativeComposition.ps1 scripts/Test-BrowserNativeSavedProfile.mjs scripts/BrowserNativeSavedProfile.test.mjs scripts/BrowserNativeProofTiming.mjs scripts/BrowserNativeProofTiming.test.mjs scripts/Control-BrowserNativeProofChild.ps1 scripts/BrowserNativePathAudit.cs
           if ($LASTEXITCODE -ne 0) { throw 'Reviewed native proof fixture changed.' }
           "OPENCLAW_WSL_OWNER_RECEIPT=$env:RUNNER_TEMP/browser-wsl-production-owner.json" >> $env:GITHUB_ENV
       - uses: actions/setup-dotnet@v6
