@@ -23,6 +23,13 @@ test('native proof selects packageManager from the nested consumer checkout',()=
   assert.match(setup,/package_json_file: consumer\/package\.json/);
   assert.doesNotMatch(setup,/^\s+version:/m);
 });
+test('every saved-profile CLI wait respects the canonical 1000-120000 ms range',()=>{
+  const source=fs.readFileSync(new URL('./Test-BrowserNativeSavedProfile.mjs',import.meta.url),'utf8');
+  const waits=[...source.matchAll(/'--wait-ms','([0-9]+)'/g)].map(match=>Number(match[1]));
+  assert.ok(waits.length>0);
+  assert.equal(waits.length,[...source.matchAll(/'--wait-ms'/g)].length);
+  assert.ok(waits.every(wait=>wait>=1000&&wait<=120000));
+});
 test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
   for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {
     const observed=savedProfileCliObservation({code:1,body});

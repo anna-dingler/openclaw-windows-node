@@ -53,9 +53,11 @@ export async function savedProfileAcceptance(h) {
   let installed=false,primaryFailed=false;
   let stage='seed';
   try {
+    // The real CLI accepts 1000-120000 ms. Zero rejects before any registration work.
+    // Keep its minimum discovery wait without changing production request/cleanup deadlines.
     // The seed uses the canonical CLI, so normal origin/runtime selection is preserved.
     installed=true;
-    const seed=await cli(['install','--browser-profile','work','--no-store','--wait-ms','0']);
+    const seed=await cli(['install','--browser-profile','work','--no-store','--wait-ms','1000']);
     receipt.savedProfileSeed=savedProfileCliObservation(seed);
     assert.equal(receipt.savedProfileSeed.ownedWorkProfile,true);
     let active=await descriptor();assert.equal(active.inspected.store,'missing');
@@ -68,7 +70,7 @@ export async function savedProfileAcceptance(h) {
     for(const action of ['inspect','verify','install']) {
       stage='selector_free_'+action;
       const before=await descriptor(),dirs=new Set(await fs.readdir(before.root));
-      const result=await cli(['setup','--action',action,'--wait-ms','0']);
+      const result=await cli(['setup','--action',action,'--wait-ms','1000']);
       assert.equal(result.code,0);assert.equal(result.body.target.profile,'work');assert.equal(result.body.target.relayPort,19444);
       assert.equal(result.body.installation.nativeHostRegistered,true);assert.equal(result.body.installation.installRequested,false);
       active=await descriptor();assert.equal(active.binding.nativeWindows.browserProfile,'work');assert.equal(active.inspected.store,'missing');
@@ -85,14 +87,14 @@ export async function savedProfileAcceptance(h) {
       assert.equal(JSON.stringify((await fs.readdir(before.root)).sort()),dirs,name);
       assert.equal((await bootstrap(after)).pairingString,initialPair.pairingString,name);
     }
-    await unchangedFailure('explicit_other_profile',['setup','--action','install','--browser-profile','chrome','--wait-ms','0']);
+    await unchangedFailure('explicit_other_profile',['setup','--action','install','--browser-profile','chrome','--wait-ms','1000']);
     const otherState=await fs.mkdtemp(path.join(fixture,'other-work-state-'));
-    await unchangedFailure('different_state',['setup','--action','install','--wait-ms','0'],{env:{OPENCLAW_STATE_DIR:otherState}});
+    await unchangedFailure('different_state',['setup','--action','install','--wait-ms','1000'],{env:{OPENCLAW_STATE_DIR:otherState}});
     const otherConfig=path.join(stateDir,'other-config.json');await fs.writeFile(otherConfig,configBytes);
-    await unchangedFailure('different_config',['setup','--action','install','--wait-ms','0'],{env:{OPENCLAW_CONFIG_PATH:otherConfig}});
+    await unchangedFailure('different_config',['setup','--action','install','--wait-ms','1000'],{env:{OPENCLAW_CONFIG_PATH:otherConfig}});
     const alternateRuntimeDirectory=await fs.mkdtemp(path.join(fixture,'alternate-runtime-'));
     const otherNode=path.join(alternateRuntimeDirectory,'node.exe');await fs.copyFile(current.nodePath,otherNode,fs.constants.COPYFILE_EXCL);
-    await unchangedFailure('runtime_drift',['setup','--action','install','--wait-ms','0'],{node:otherNode});
+    await unchangedFailure('runtime_drift',['setup','--action','install','--wait-ms','1000'],{node:otherNode});
     stage='wrong_mode';
     active=await descriptor();const wrongMode=await manage({...active.request,action:'install',mode:'companion-managed-wsl',context:null,expectedOrigins:[origin]});
     assert.equal(wrongMode.ok,false);assert.equal((await descriptor()).inspected.installation.generation,active.inspected.installation.generation);
@@ -101,7 +103,7 @@ export async function savedProfileAcceptance(h) {
     const before=await descriptor(),dirs=JSON.stringify((await fs.readdir(before.root)).sort());
     try {
       await fs.writeFile(configPath,JSON.stringify({...config,browser:{...config.browser,profiles:{chrome:config.browser.profiles.chrome}}}));
-      const noSaved=await cli(['setup','--action','install','--wait-ms','0']);assert.notEqual(noSaved.code,0);
+      const noSaved=await cli(['setup','--action','install','--wait-ms','1000']);assert.notEqual(noSaved.code,0);
       assert.equal(JSON.stringify((await fs.readdir(before.root)).sort()),dirs);
     } finally { await fs.writeFile(configPath,configBytes); }
     assert.equal((await descriptor()).inspected.installation.generation,before.inspected.installation.generation);
@@ -114,7 +116,7 @@ export async function savedProfileAcceptance(h) {
     const generationsBefore=JSON.stringify((await fs.readdir(active.root)).sort());
     try {
       await fs.writeFile(bindingPath,Buffer.concat([bindingBytes,Buffer.from(' ')]));
-      const refused=await cli(['setup','--action','install','--wait-ms','0']);
+      const refused=await cli(['setup','--action','install','--wait-ms','1000']);
       assert.ok(refused.code!==0||refused.body?.phase==='blocked');
       assert.equal(JSON.stringify((await fs.readdir(active.root)).sort()),generationsBefore);
     } finally { await fs.writeFile(bindingPath,bindingBytes); }
@@ -125,7 +127,7 @@ export async function savedProfileAcceptance(h) {
     if(!h.withFrozenNative)throw Error('Actual native ownership fixture required for unknown/cancel proof');
     active=await descriptor();
     await h.withFrozenNative(active.inspected.installation,frame({v:1,op:'bootstrap',nonce}),fixture,async control=>{
-      const blocked=await cli(['setup','--action','install','--wait-ms','0']);
+      const blocked=await cli(['setup','--action','install','--wait-ms','1000']);
       assert.ok(blocked.code!==0||blocked.body?.phase==='blocked');
       assert.equal(JSON.stringify((await fs.readdir(active.root)).sort()),generationsBefore);
       await control.resume();assert.equal(response(await control.work).ok,true);
@@ -147,14 +149,14 @@ export async function savedProfileAcceptance(h) {
     const currentManifest=active.inspected.installation.manifestPath;
     try {
       replaceChromium(currentManifest,retained);
-      const mixed=await cli(['setup','--action','install','--wait-ms','0']);assert.ok(mixed.code!==0||mixed.body?.phase==='blocked');
+      const mixed=await cli(['setup','--action','install','--wait-ms','1000']);assert.ok(mixed.code!==0||mixed.body?.phase==='blocked');
       assert.equal(JSON.stringify((await fs.readdir(active.root)).sort()),generationsBefore);
     } finally { replaceChromium(retained,currentManifest); }
     assert.equal((await descriptor()).inspected.installation.generation,generationBefore);
     check('mixed_registered_generations_fail_closed_without_automatic_mutation');
     stage='cancelled_setup';
     await h.withFrozenNative(active.inspected.installation,frame({v:1,op:'bootstrap',nonce}),fixture,async control=>{
-      const cancelled=await cli(['setup','--action','install','--wait-ms','0'],{onSpawn:async child=>{
+      const cancelled=await cli(['setup','--action','install','--wait-ms','1000'],{onSpawn:async child=>{
         const payload=Buffer.from(JSON.stringify({pid:child.pid,node:current.nodePath,helper:executable})).toString('base64');
         powershell("$ErrorActionPreference='Stop';$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+payload+"'))|ConvertFrom-Json;$parent=[Diagnostics.Process]::GetProcessById([int]$p.pid);$null=$parent.Handle;try{if($parent.MainModule.FileName-cne $p.node){throw 'CLI identity'};$end=[DateTime]::UtcNow.AddSeconds(12);$owned=$null;while($null-eq $owned){if($parent.HasExited-or[DateTime]::UtcNow-gt$end){throw 'management child not observed'};foreach($c in @(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$parent.Id))){if($c.ExecutablePath-ceq$p.helper){$owned=[Diagnostics.Process]::GetProcessById([int]$c.ProcessId);$null=$owned.Handle;if($owned.StartTime.ToUniversalTime()-lt$parent.StartTime.ToUniversalTime()-or$owned.MainModule.FileName-cne$p.helper){throw 'child identity'};break}};if($null-eq$owned){Start-Sleep -Milliseconds 10}};try{& (Join-Path $env:SystemRoot 'System32/taskkill.exe') /PID $parent.Id /T /F >$null;if(!$parent.WaitForExit(5000)-or!$owned.WaitForExit(5000)){throw 'owned tree not joined'}}finally{$owned.Dispose()}}finally{$parent.Dispose()}");
       }});
@@ -165,9 +167,9 @@ export async function savedProfileAcceptance(h) {
     check('cancelled_selector_free_setup_joins_owned_management_child_without_mutation');
     stage='store_preservation';
     // Explicit Store request is separate from the opt-out case; repair must preserve it.
-    await cli(['install','--browser-profile','work','--wait-ms','0']);
+    await cli(['install','--browser-profile','work','--wait-ms','1000']);
     assert.equal((await descriptor()).inspected.store,'requested');
-    const preserve=await cli(['setup','--action','install','--wait-ms','0']);
+    const preserve=await cli(['setup','--action','install','--wait-ms','1000']);
     assert.equal(preserve.body.target.profile,'work');assert.equal(preserve.body.installation.installRequested,true);
     assert.equal((await bootstrap(await descriptor())).pairingString,initialPair.pairingString);
     check('selector_free_repair_preserves_explicit_store_request');
@@ -175,9 +177,9 @@ export async function savedProfileAcceptance(h) {
     const retireWork=await cli(['uninstall-host','--browser-profile','work','--remove-store']);
     assert.equal(retireWork.code,0);assert.ok(Array.isArray(retireWork.body?.refused));assert.equal(retireWork.body.refused.length,0);
     current={...current,browserProfile:'chrome'};
-    await cli(['install','--browser-profile','chrome','--no-store','--wait-ms','0']);
+    await cli(['install','--browser-profile','chrome','--no-store','--wait-ms','1000']);
     const currentChrome=await descriptor();assert.equal(currentChrome.binding.nativeWindows.browserProfile,'chrome');
-    const select=await cli(['setup','--action','inspect','--wait-ms','0']);
+    const select=await cli(['setup','--action','inspect','--wait-ms','1000']);
     assert.equal(select.body.target.profile,'chrome');
     assert.equal((await descriptor()).inspected.installation.generation,currentChrome.inspected.installation.generation);
     check('retained_work_generations_never_override_current_chrome_selection');
