@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import {snapshotBrowserState,describeLegacySnapshotBounds,browserStateScope} from './BrowserNativeStateSnapshot.mjs';
 // Return only assertion class and fixture coordinates, never messages or actual/expected values.
 export function savedProfileFailure(error) {
   const location=error instanceof Error?error.stack?.match(/Test-BrowserNativeSavedProfile\.mjs:(\d+):(\d+)/):undefined;
+  const snapshotCode=['snapshot_entry_bound','snapshot_byte_bound','snapshot_link','snapshot_file_type','snapshot_changed','snapshot_root_inventory_bound'].includes(error?.code)?error.code:undefined;
   return {kind:error?.code==='ERR_ASSERTION'?'assertion_failed':'execution_failed',
-    ...(location?{line:Number(location[1]),column:Number(location[2])}:{})};
+    ...(snapshotCode?{snapshotCode}:{}),...(location?{line:Number(location[1]),column:Number(location[2])}:{})};
 }
 // Closed-schema diagnostics distinguish a malformed CLI projection from registration refusal.
 export function savedProfileCliObservation(result) {
@@ -221,7 +223,6 @@ export async function savedProfileAcceptance(h) {
     assert.equal((await descriptor()).inspected.installation.generation,currentChrome.inspected.installation.generation);
     check('retained_work_generations_never_override_current_chrome_selection');
     stage='true_foreign_store';
-    assert.ok(h.stateSnapshot,'bounded state snapshot helper required');
     assert.equal((await manage({...currentChrome.request,action:'uninstall'})).ok,true);
     const foreignState=await fs.realpath(await fs.mkdtemp(path.join(fixture,'foreign-store-')));
     const foreignConfig=path.join(foreignState,'openclaw.json');await fs.writeFile(foreignConfig,configBytes,{flag:'wx'});
@@ -244,21 +245,23 @@ export async function savedProfileAcceptance(h) {
       assert.equal(workNative.ok,true);assert.equal(workNative.store,'foreign');
       const generation=workNative.installation.generation;
       assertMatchedForeignStore(await manage(foreignRequest(foreignWork)),generation);
-      const beforeState=await h.stateSnapshot(foreignState);
+      receipt.trueForeignStore={matchedNativeDescriptor:true,store:'foreign',refusals:[],snapshotScope:browserStateScope};
+      receipt.trueForeignStore.legacySnapshotBounds=await describeLegacySnapshotBounds(foreignState);
+      const snapshot=await snapshotBrowserState(foreignState),beforeState=snapshot.value;
       const beforeDirectories=JSON.stringify((await fs.readdir(currentChrome.root)).sort());
-      receipt.trueForeignStore={matchedNativeDescriptor:true,store:'foreign',refusals:[],
-        beforeStateSha256:crypto.createHash('sha256').update(beforeState).digest('hex')};
+      Object.assign(receipt.trueForeignStore,{snapshotEntries:snapshot.entries,snapshotBytes:snapshot.bytes,
+        beforeStateSha256:crypto.createHash('sha256').update(beforeState).digest('hex')});
       for(const action of ['verify','install']) {
         const result=await cli(['setup','--action',action,'--wait-ms','1000'],{env:{OPENCLAW_STATE_DIR:foreignState,OPENCLAW_CONFIG_PATH:foreignConfig}});
         assert.equal(result.code,1);assert.equal(result.body?.target,undefined);
         assert.equal(result.body?.installation,undefined);
         assertMatchedForeignStore(await manage(foreignRequest(foreignWork)),generation);
         assert.equal(JSON.stringify((await fs.readdir(currentChrome.root)).sort()),beforeDirectories);
-        assert.equal(await h.stateSnapshot(foreignState),beforeState);
+        assert.equal((await snapshotBrowserState(foreignState)).value,beforeState);
         receipt.trueForeignStore.refusals.push({action,exitCode:result.code,setupProjectionAbsent:true,
           nativeGenerationPreserved:true,foreignStorePreserved:true,statePreserved:true});
       }
-      receipt.trueForeignStore.afterStateSha256=crypto.createHash('sha256').update(await h.stateSnapshot(foreignState)).digest('hex');
+      receipt.trueForeignStore.afterStateSha256=crypto.createHash('sha256').update((await snapshotBrowserState(foreignState)).value).digest('hex');
       check('true_foreign_store_blocks_saved_profile_verify_and_install_without_state_effects');
     } catch(error) { foreignFailure=error;throw error; }
     finally {

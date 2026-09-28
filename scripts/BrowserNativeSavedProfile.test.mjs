@@ -43,6 +43,18 @@ test('foreign Store proof requires a matching live native descriptor and typed r
   }
   assert.throws(()=>assertMatchedForeignStore({...matching,installation:null},undefined));
 });
+test('snapshot failures retain only an allowlisted bound code',()=>{
+  const error=new Error('private-value');error.code='snapshot_byte_bound';
+  assert.deepEqual(savedProfileFailure(error),{kind:'execution_failed',snapshotCode:'snapshot_byte_bound'});
+  error.code='private-value';assert.deepEqual(savedProfileFailure(error),{kind:'execution_failed'});
+});
+test('snapshot helper and regressions remain in the frozen native proof graph',()=>{
+  for(const file of ['BrowserNativeStateSnapshot.mjs','BrowserNativeStateSnapshot.test.mjs']) {
+    const native=fs.readFileSync(new URL('../.github/workflows/browser-native-composed-proof.yml',import.meta.url),'utf8');
+    const wsl=fs.readFileSync(new URL('../.github/workflows/browser-wsl-owner-proof.yml',import.meta.url),'utf8');
+    assert.ok(native.includes('scripts/'+file));assert.ok(wsl.includes('scripts/'+file));
+  }
+});
 test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
   for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {
     const observed=savedProfileCliObservation({code:1,body});

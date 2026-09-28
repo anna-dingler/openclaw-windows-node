@@ -335,7 +335,7 @@ try {
     assert.equal(await stateSnapshot(context.stateDir),eofBefore,'retired_variant_state_effect');
     check('retired_valid_nonce_parser_variants_cannot_bypass_activation');
     stage='canonical-saved-profile-acceptance';
-    await savedProfileAcceptance({fixture,context,executable,baseEnv,exchange,manage,powershell,frame,response,origin,nonce,check,receipt,withFrozenNative,stateSnapshot});
+    await savedProfileAcceptance({fixture,context,executable,baseEnv,exchange,manage,powershell,frame,response,origin,nonce,check,receipt,withFrozenNative});
     receipt.status='passed';
   }
 } catch (error) {
