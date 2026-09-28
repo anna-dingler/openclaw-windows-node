@@ -12,9 +12,10 @@ import {
     joinSession,
 } from "@github/copilot-sdk/extension";
 import {
+    CANVAS_INPUT_SCHEMA,
     mergeAdversarialReviews,
     mergeLiveState,
-    normalizeTriageInput,
+    normalizeCanvasInput,
     reconcileOpenInventory,
 } from "./triage-state.mjs";
 import {
@@ -25,6 +26,7 @@ import {
     requestHostMatches,
     requestItemAction,
     requestTokenMatches,
+    requireTriageState,
 } from "./triage-actions.mjs";
 import { renderDashboardHtml } from "./triage-ui.mjs";
 
@@ -331,6 +333,7 @@ function refreshSessionData(entry) {
 }
 
 async function refreshEntry(entry, force = false) {
+    requireTriageState(entry.state, (code, message) => new CanvasError(code, message));
     if (entry.refreshPromise) {
         if (!force) {
             return entry.refreshPromise;
@@ -340,9 +343,12 @@ async function refreshEntry(entry, force = false) {
             return refreshEntry(entry, true);
         }
     }
+    requireTriageState(entry.state, (code, message) => new CanvasError(code, message));
+    const triage = entry.triage;
     const refreshPromise = (async () => {
         try {
-            const live = await collectLiveState(entry.triage.repo, entry.triage.items);
+            const live = await collectLiveState(triage.repo, triage.items);
+            if (entry.triage !== triage) return entry.state;
             entry.pullRequests = live.pullRequests;
             entry.issues = live.issues;
             entry.triage = reconcileOpenInventory(entry.triage, entry.pullRequests, entry.issues);
@@ -351,6 +357,7 @@ async function refreshEntry(entry, force = false) {
                 refreshWarning: live.refreshWarning,
             });
         } catch (error) {
+            if (entry.triage !== triage) return entry.state;
             entry.triage = reconcileOpenInventory(entry.triage, entry.pullRequests, entry.issues);
             entry.state = mergeSessionData({
                 ...mergeLiveState(
@@ -479,7 +486,7 @@ async function startInstance(instanceId, triage) {
         pullRequests: [],
         refreshPromise: null,
         server: null,
-        state: mergeSessionData(mergeLiveState(triage, [], [])),
+        state: triage.isBootstrap ? triage : mergeSessionData(mergeLiveState(triage, [], [])),
         taskTimer: null,
         timer: null,
         triage,
@@ -527,10 +534,20 @@ async function getOrStartInstance(instanceId, triage) {
 }
 
 function reconfigureInstance(entry, triage) {
-    entry.triage = reconcileOpenInventory(triage, entry.pullRequests, entry.issues);
-    entry.state = mergeSessionData(mergeLiveState(entry.triage, entry.pullRequests, entry.issues));
     clearInterval(entry.timer);
     clearInterval(entry.taskTimer);
+    entry.timer = null;
+    entry.taskTimer = null;
+    if (triage.isBootstrap) {
+        entry.triage = triage;
+        entry.pullRequests = [];
+        entry.issues = [];
+        entry.state = triage;
+        sendState(entry);
+        return;
+    }
+    entry.triage = reconcileOpenInventory(triage, entry.pullRequests, entry.issues);
+    entry.state = mergeSessionData(mergeLiveState(entry.triage, entry.pullRequests, entry.issues));
     entry.timer = setInterval(() => {
         refreshEntry(entry).catch(() => {});
     }, triage.refreshSeconds * 1_000);
@@ -554,34 +571,6 @@ async function closeInstance(instanceId) {
     await new Promise((resolveClose) => entry.server.close(resolveClose));
 }
 
-const inputSchema = {
-    type: "object",
-    required: ["schemaVersion", "repo", "title", "scope", "generatedAt", "items"],
-    properties: {
-        schemaVersion: { const: 1 },
-        repo: { type: "string" },
-        title: { type: "string" },
-        scope: { type: "string" },
-        generatedAt: { type: "string" },
-        refreshSeconds: { type: "integer", minimum: 30, maximum: 300 },
-        items: { type: "array", minItems: 1, maxItems: 1000 },
-        plan: { type: "array", maxItems: 1000 },
-        report: {
-            type: "object",
-            properties: {
-                changes: { type: "array", maxItems: 100 },
-                executiveQueue: { type: "array", maxItems: 100 },
-                ownership: { type: "array", maxItems: 100 },
-                reviews: { type: "array", maxItems: 100 },
-                dayPlan: { type: "array", maxItems: 100 },
-                automation: { type: "array", maxItems: 100 },
-            },
-            additionalProperties: false,
-        },
-    },
-    additionalProperties: false,
-};
-
 const itemActionSchema = {
     type: "object",
     required: ["number"],
@@ -595,7 +584,7 @@ const dashboard = createCanvas({
     id: "openclaw-triage-dashboard",
     displayName: "OpenClaw triage",
     description: "Shows live OpenClaw triage checks, execution-plan progress, proof gates, and guarded actions.",
-    inputSchema,
+    inputSchema: CANVAS_INPUT_SCHEMA,
     actions: [
         {
             name: "refresh",
@@ -644,12 +633,14 @@ const dashboard = createCanvas({
         },
     ],
     open: async (context) => {
-        const triage = normalizeTriageInput(context.input);
+        const triage = normalizeCanvasInput(context.input);
         const entry = await getOrStartInstance(context.instanceId, triage);
         reconfigureInstance(entry, triage);
         return {
             title: triage.title,
-            status: `Live checks every ${triage.refreshSeconds}s`,
+            status: triage.isBootstrap
+                ? "No triage state loaded"
+                : `Live checks every ${triage.refreshSeconds}s`,
             url: entry.url,
         };
     },

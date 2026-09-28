@@ -46,7 +46,7 @@ public sealed partial class CompletePage : Page
                 LocalAiSummaryCard.Visibility = review.LocalAiEnabled ? Visibility.Visible : Visibility.Collapsed;
                 if (review.LocalAiEnabled)
                 {
-                    LocalAiSummaryTitle.Text = review.LocalAiTitle ?? "Local AI verified";
+                    LocalAiSummaryTitle.Text = review.LocalAiTitle ?? "Local AI installed";
                     LocalAiSummaryDescription.Text = review.LocalAiDescription ??
                         "The native llama-server router is ready. The model loads on the first request.";
                     SubtitleText.Text = "OpenClaw and Local AI are ready";
@@ -100,8 +100,8 @@ public sealed partial class CompletePage : Page
                     ? Visibility.Visible
                     : Visibility.Collapsed;
                 FallbackButton.Content = string.IsNullOrWhiteSpace(args.GatewayFallbackVersion)
-                    ? "Retry with validated fallback"
-                    : $"Retry with validated fallback {args.GatewayFallbackVersion}";
+                    ? "Retry with configured fallback"
+                    : $"Retry with fallback {args.GatewayFallbackVersion}";
 
                 // Show error card with details and log link
                 ErrorCard.Visibility = Visibility.Visible;

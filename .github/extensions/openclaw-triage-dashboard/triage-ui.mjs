@@ -408,6 +408,9 @@ export function renderDashboardHtml() {
     .numbered-list { margin: 0; padding: 8px 16px 8px 44px; }
     .numbered-list li { padding: 5px 0 5px 4px; }
     .empty-state { padding: 32px 16px; color: var(--github-muted); text-align: center; }
+    .bootstrap { margin-top: 24px; }
+    .bootstrap p, .bootstrap li { margin-bottom: 12px; }
+    .bootstrap code { font-family: var(--font-mono, Consolas, monospace); overflow-wrap: anywhere; }
     .item:hover { background: var(--github-inset); }
     .item-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
     .item-heading-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -554,6 +557,20 @@ export function renderDashboardHtml() {
       </div>
     </header>
     <div id="error" class="error hidden" role="alert"></div>
+    <section id="bootstrap" class="bootstrap hidden" aria-labelledby="bootstrap-title">
+      <h2 id="bootstrap-title">Load or generate triage state</h2>
+      <p>This dashboard has no triage data yet. No GitHub queries or item actions run until you supply state.</p>
+      <ol>
+        <li>Ask the agent to use the <code>global-repo-triage</code> skill, review current evidence, and save
+          <code>global-triage-YYYY-MM-DD.json</code> as a session artifact. Keep GitHub mutations read-only until you approve them.</li>
+        <li>To load that artifact or an existing one, ask the agent to read its JSON and call <code>open_canvas</code>
+          for <code>openclaw-triage-dashboard</code> with the parsed version-1 object as <code>input</code>
+          and a fresh <code>instanceId</code>.</li>
+      </ol>
+      <p class="muted">Reopening this panel may only focus it. No files are loaded automatically.
+        The skill's <code>templates\\triage-state.template.json</code> is a format example, not reviewed evidence.</p>
+    </section>
+    <div id="dashboard">
     <div class="workspace-layout">
     <div class="workspace-main">
     <nav class="tabs" role="tablist" aria-label="Triage report sections">
@@ -619,6 +636,7 @@ export function renderDashboardHtml() {
       <div id="session-tasks" class="session-task-list"></div>
       <p id="session-tasks-error" class="session-progress-error hidden" role="status"></p>
     </aside>
+    </div>
     </div>
   </main>
   <div id="notice" class="notice hidden" role="status"></div>
@@ -904,7 +922,7 @@ export function renderDashboardHtml() {
       root.replaceChildren();
       const liveNumbers = new Set((reviews ?? []).map((review) => review.prNumber));
       const remainingStaticReviews = staticReviews.filter((review) => {
-        const numbers = [...String(review.item ?? "").matchAll(/#(\d+)/g)]
+        const numbers = [...String(review.item ?? "").matchAll(/#(\\d+)/g)]
           .map((match) => Number(match[1]));
         return numbers.length === 0 || numbers.some((number) => !liveNumbers.has(number));
       });
@@ -1287,12 +1305,18 @@ export function renderDashboardHtml() {
         : null;
       document.getElementById("title").textContent = state.title;
       document.getElementById("scope").textContent = state.scope;
-      document.getElementById("updated").textContent = "Live " +
+      const isBootstrap = state.isBootstrap === true;
+      document.getElementById("bootstrap").classList.toggle("hidden", !isBootstrap);
+      document.getElementById("dashboard").classList.toggle("hidden", isBootstrap);
+      document.getElementById("refresh").classList.toggle("hidden", isBootstrap);
+      document.getElementById("refresh").disabled = isBootstrap;
+      document.getElementById("updated").textContent = isBootstrap ? "" : "Live " +
         new Date(state.liveUpdatedAt).toLocaleTimeString();
       const error = document.getElementById("error");
       const refreshMessage = state.refreshError || state.refreshWarning || "";
       error.textContent = refreshMessage;
       error.classList.toggle("hidden", !refreshMessage);
+      if (isBootstrap) return;
       renderMetrics(state.summary);
       document.getElementById("type-pr-count").textContent =
         String(state.items.filter((item) => item.type === "pr").length);
@@ -1336,6 +1360,7 @@ export function renderDashboardHtml() {
       });
     }
     document.getElementById("refresh").addEventListener("click", async (event) => {
+      if (!state || state.isBootstrap) return;
       const refreshButton = event.currentTarget;
       refreshButton.disabled = true;
       try {
@@ -1345,13 +1370,15 @@ export function renderDashboardHtml() {
       } catch (error) {
         showNotice(error.message);
       } finally {
-        refreshButton.disabled = false;
+        refreshButton.disabled = state?.isBootstrap === true;
       }
     });
 
     const events = new EventSource("/events?token=" + encodeURIComponent(actionToken));
     events.addEventListener("state", (event) => render(JSON.parse(event.data)));
-    events.addEventListener("error", () => showNotice("Live updates disconnected. Use Refresh now to retry."));
+    events.addEventListener("error", () => showNotice(state?.isBootstrap
+      ? "Dashboard disconnected. Reopen the panel to retry."
+      : "Live updates disconnected. Use Refresh now to retry."));
     loadState().catch((error) => showNotice(error.message));
   </script>
 </body>

@@ -31,6 +31,7 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
 
     public async Task<LocalAiEndpointLifecycleResult> QuiesceAsync(
         LocalAiResolvedInstall install,
+        LocalAiQuiesceReason reason = LocalAiQuiesceReason.Teardown,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(install);
@@ -70,7 +71,8 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
         }
 
         string? expectedPrimary = current.PrimaryModel;
-        if (primaryIsManaged)
+        bool retainManagedPrimary = reason == LocalAiQuiesceReason.EndpointCycle;
+        if (primaryIsManaged && !retainManagedPrimary)
         {
             expectedPrimary = install.Manifest.GatewayFallbackModel;
             LocalAiEndpointLifecycleResult primaryResult = expectedPrimary is null
@@ -131,9 +133,12 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
         }
 
         string? fallbackModel = install.Manifest.GatewayFallbackModel;
-        if (current.PrimaryExists != (fallbackModel is not null) ||
-            (fallbackModel is not null &&
-                !string.Equals(current.PrimaryModel, fallbackModel, StringComparison.Ordinal)))
+        bool retainedManagedPrimary = current.PrimaryExists &&
+            string.Equals(current.PrimaryModel, managedPrimary, StringComparison.Ordinal);
+        if (!retainedManagedPrimary &&
+            (current.PrimaryExists != (fallbackModel is not null) ||
+                (fallbackModel is not null &&
+                    !string.Equals(current.PrimaryModel, fallbackModel, StringComparison.Ordinal))))
         {
             return Failed("The gateway primary model changed while Local AI was stopped; preserving it instead of overwriting it.");
         }
@@ -143,7 +148,7 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
             return Failed(applied.Detail!);
         if (!applied.Result!.Success)
         {
-            LocalAiEndpointLifecycleResult cleanup = await QuiesceAsync(install, cancellationToken)
+            LocalAiEndpointLifecycleResult cleanup = await QuiesceAsync(install, LocalAiQuiesceReason.Teardown, cancellationToken)
                 .ConfigureAwait(false);
             return PublicationFailed(
                 "The verified Local AI route could not be published to the app-owned gateway.",
@@ -156,7 +161,7 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
             !verified.PrimaryExists ||
             !string.Equals(verified.PrimaryModel, managedPrimary, StringComparison.Ordinal))
         {
-            LocalAiEndpointLifecycleResult cleanup = await QuiesceAsync(install, cancellationToken)
+            LocalAiEndpointLifecycleResult cleanup = await QuiesceAsync(install, LocalAiQuiesceReason.Teardown, cancellationToken)
                 .ConfigureAwait(false);
             return PublicationFailed(
                 "The app-owned gateway did not retain the verified Local AI route.",
@@ -236,11 +241,15 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
         WslCommandResult direct = routed.Result!;
         if (direct.Success)
             return new(true, true, direct.StandardOutput, null);
-        string missing = $"Config path not found: {path}";
-        return direct.StandardError.Contains(missing, StringComparison.Ordinal)
+        return IsUnsetSetting(direct, path)
             ? new(true, false, null, null)
             : new(false, false, null, $"The app-owned gateway setting '{path}' could not be read.");
     }
+
+    private static bool IsUnsetSetting(WslCommandResult result, string path) =>
+        result.StandardError.Length <= 64 * 1024 &&
+        GatewayConfigCliCompatibility.IsUnsetError(
+            result.ExitCode, result.StandardOutput, result.StandardError, path);
 
     private async Task<LocalAiEndpointLifecycleResult> SetPrimaryAsync(
         string model,
@@ -277,12 +286,19 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
         CancellationToken cancellationToken)
     {
         string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(batch));
+        // Gateway requires a regular batch file. Send this script through stdin
+        // so wsl.exe cannot expand the Linux temporary-file variable in argv.
         string script =
-            $"set -e\nprintf '%s' '{encoded}' | base64 -d | openclaw config set --batch-file /dev/stdin --dry-run\n" +
-            $"printf '%s' '{encoded}' | base64 -d | openclaw config set --batch-file /dev/stdin";
+            "set -e\n" +
+            "batch_file=\"$(mktemp)\"\n" +
+            "trap 'rm -f \"$batch_file\"' EXIT\n" +
+            $"printf '%s' '{encoded}' | base64 -d > \"$batch_file\"\n" +
+            "openclaw config set --batch-file \"$batch_file\" --dry-run\n" +
+            "openclaw config set --batch-file \"$batch_file\"\n";
         return RunInManagedDistroAsync(
-            ["/usr/bin/env", $"PATH={FixedPath}", "/bin/sh", "-c", script],
-            cancellationToken);
+            ["/usr/bin/env", $"PATH={FixedPath}", "/bin/sh", "-s"],
+            cancellationToken,
+            standardInput: script);
     }
 
     private static JsonDocument ParseBounded(string value)
@@ -308,7 +324,8 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
 
     private async Task<RoutedCommandResult> RunInManagedDistroAsync(
         IReadOnlyList<string> command,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? standardInput = null)
     {
         LocalAiGatewayDistroResolution resolution = _distroResolver.Resolve();
         if (!resolution.Success)
@@ -317,7 +334,8 @@ internal sealed class LocalAiGatewayProviderCoordinator : ILocalAiEndpointLifecy
         WslCommandResult result = await _commands.RunInDistroAsync(
                 resolution.DistroName!,
                 command,
-                cancellationToken)
+                cancellationToken,
+                standardInput: standardInput)
             .ConfigureAwait(false);
         return new(result, null);
     }

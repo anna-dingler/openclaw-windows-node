@@ -1,14 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { register } from "node:module";
 import test from "node:test";
 import {
     applyAdversarialReview,
     canRequestMerge,
+    CANVAS_INPUT_SCHEMA,
     mergeAdversarialReviews,
     mergeLiveState,
     KNOWN_PROOF_POOLS,
+    normalizeCanvasInput,
     normalizeTriageInput,
     reconcileOpenInventory,
+    TRIAGE_INPUT_SCHEMA,
     summarizeChecks,
 } from "./triage-state.mjs";
 import {
@@ -70,6 +74,202 @@ function livePr(overrides = {}) {
         ...overrides,
     };
 }
+
+function dashboardInput(overrides = {}) {
+    return {
+        schemaVersion: 1,
+        repo: "openclaw/openclaw-windows-node",
+        title: "Global triage",
+        scope: "All open work",
+        generatedAt: "2026-09-03T22:00:00Z",
+        items: [inputItem()],
+        ...overrides,
+    };
+}
+
+test("no-state input is distinct from a versioned triage report", () => {
+    for (const input of [undefined, null, {}]) {
+        const state = normalizeCanvasInput(input);
+        assert.equal(state.isBootstrap, true);
+        assert.equal(state.scope, "No triage state loaded");
+        assert.deepEqual(state.items, []);
+        assert.deepEqual(state.plan, []);
+        assert.equal(state.liveUpdatedAt, undefined);
+        assert.equal(state.generatedAt, undefined);
+        assert.equal(state.refreshSeconds, undefined);
+        assert.throws(() => normalizeTriageInput(input));
+    }
+    assert.deepEqual(normalizeCanvasInput(dashboardInput()), normalizeTriageInput(dashboardInput()));
+    for (const input of [
+        [], "", 0, false, { title: "Partial" }, { isBootstrap: true },
+        dashboardInput({ schemaVersion: 2 }),
+        dashboardInput({ items: [] }),
+        dashboardInput({ repo: "other/repo" }),
+    ]) {
+        assert.throws(() => normalizeCanvasInput(input));
+    }
+    assert.deepEqual(CANVAS_INPUT_SCHEMA.anyOf, [
+        { type: "null" },
+        { type: "object", maxProperties: 0 },
+        TRIAGE_INPUT_SCHEMA,
+    ]);
+    assert.equal(TRIAGE_INPUT_SCHEMA.additionalProperties, false);
+    assert.equal(TRIAGE_INPUT_SCHEMA.properties.items.minItems, 1);
+    assert.deepEqual(TRIAGE_INPUT_SCHEMA.required,
+        ["schemaVersion", "repo", "title", "scope", "generatedAt", "items"]);
+});
+
+async function loadExtensionHarness() {
+    const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
+    const sdkUrl = moduleUrl(`
+        export let dashboard;
+        export const sent = [];
+        export class CanvasError extends Error {
+            constructor(code, message) { super(message); this.code = code; }
+        }
+        export const createCanvas = options => options;
+        export async function joinSession({ canvases }) {
+            dashboard = canvases[0];
+            return { send: async message => sent.push(message) };
+        }
+    `);
+    const processUrl = moduleUrl(`
+        import { promisify } from "node:util";
+        export const calls = [];
+        let release;
+        let barrier;
+        export function pause() { barrier = new Promise(resolve => { release = resolve; }); }
+        export function resume() { barrier = null; release(); }
+        export function execFile() { throw new Error("Expected promisified execFile"); }
+        execFile[promisify.custom] = async (file, args) => {
+            calls.push(args);
+            if (barrier) await barrier;
+            return { stdout: JSON.stringify(args[0] === "pr"
+                ? [{ number: 1308, state: "OPEN", headRefOid: "abc123" }]
+                : []) };
+        };
+        export function execFileSync() { return process.execPath; }
+    `);
+    const entryUrl = new URL("./extension.mjs", import.meta.url).href;
+    // Mock only the extension's SDK and process boundary, never its implementation.
+    register(moduleUrl(`
+        let config;
+        export function initialize(data) { config = data; }
+        export async function resolve(specifier, context, nextResolve) {
+            if (context.parentURL === config.entryUrl && config.mocks[specifier]) {
+                return { url: config.mocks[specifier], shortCircuit: true };
+            }
+            return nextResolve(specifier, context);
+        }
+    `), {
+        parentURL: import.meta.url,
+        data: {
+            entryUrl,
+            mocks: {
+                "@github/copilot-sdk/extension": sdkUrl,
+                "node:child_process": processUrl,
+                "node:fs": moduleUrl("export function existsSync() { return true; }"),
+            },
+        },
+    });
+    await import(entryUrl);
+    return { ...await import(sdkUrl), gh: await import(processUrl) };
+}
+
+test("real open handler serves inert bootstrap and preserves explicit-state refresh", async (t) => {
+    const { dashboard, sent, gh } = await loadExtensionHarness();
+    assert.equal(dashboard.inputSchema, CANVAS_INPUT_SCHEMA);
+    const timers = new Set();
+    t.mock.method(globalThis, "setInterval", (_, milliseconds) => {
+        const timer = { milliseconds, unref() {} };
+        timers.add(timer);
+        return timer;
+    });
+    t.mock.method(globalThis, "clearInterval", (timer) => timers.delete(timer));
+    const opened = new Set();
+    const open = async (instanceId, input) => {
+        const result = await dashboard.open({ instanceId, input });
+        opened.add(instanceId);
+        const url = new URL(result.url);
+        const token = new URLSearchParams(url.hash.slice(1)).get("token");
+        const request = (path, method = "GET", body) => fetch(new URL(path, url), {
+            method,
+            headers: { "x-triage-token": token },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        return { result, request };
+    };
+    t.after(async () => {
+        for (const instanceId of opened) await dashboard.onClose({ instanceId });
+    });
+    const invoke = (instanceId, name, input) => dashboard.actions
+        .find((action) => action.name === name).handler({ instanceId, input });
+
+    for (const [index, input] of [undefined, null, {}].entries()) {
+        const instanceId = `bootstrap-${index}`;
+        const { result, request } = await open(instanceId, input);
+        assert.equal(result.status, "No triage state loaded");
+        const state = await (await request("/state")).json();
+        assert.equal(state.isBootstrap, true);
+        assert.equal(state.liveUpdatedAt, undefined);
+        const html = await (await request("/")).text();
+        assert.match(html, /Load or generate triage state/);
+        assert.match(html, /global-repo-triage/);
+        assert.match(html, /fresh <code>instanceId/);
+        for (const name of ["refresh", "request_next_action", "request_merge"]) {
+            await assert.rejects(invoke(instanceId, name, { number: 1308, headSha: "abc1234" }),
+                { code: "triage_not_loaded" });
+        }
+        for (const [path, body] of [
+            ["/refresh", {}],
+            ["/action", { action: "request_next_action", number: 1308 }],
+            ["/action", { action: "request_merge", number: 1308, headSha: "abc1234" }],
+        ]) {
+            const response = await request(path, "POST", body);
+            assert.equal(response.status, 409);
+            assert.match((await response.json()).error, /No triage state loaded/);
+        }
+        assert.equal((await fetch(new URL("/state", result.url))).status, 403);
+        assert.equal((await open(instanceId, input)).result.url, result.url);
+    }
+    assert.equal(gh.calls.length, 0);
+    assert.equal(timers.size, 0);
+    assert.equal(sent.length, 0);
+
+    for (const input of [{ title: "Partial" }, dashboardInput({ items: [] }), dashboardInput({ schemaVersion: 2 })]) {
+        await assert.rejects(open("invalid", input));
+    }
+    assert.equal(gh.calls.length, 0);
+
+    const populated = await open("populated", dashboardInput());
+    assert.equal(populated.result.status, "Live checks every 60s");
+    const refreshed = await invoke("populated", "refresh");
+    assert.equal(refreshed.isBootstrap, undefined);
+    assert.equal(refreshed.items[0].live.number, 1308);
+    assert.ok(refreshed.liveUpdatedAt);
+    assert.deepEqual(
+        [...timers].map((timer) => timer.milliseconds).sort((left, right) => left - right),
+        [2_000, 60_000],
+    );
+    assert.deepEqual(gh.calls.map((args) => args.slice(0, 2)), [["pr", "list"], ["issue", "list"]]);
+
+    gh.pause();
+    const pendingRefresh = invoke("populated", "refresh");
+    await open("populated", undefined);
+    gh.resume();
+    await pendingRefresh;
+    const afterReconfigure = await (await populated.request("/state")).json();
+    assert.equal(afterReconfigure.isBootstrap, true);
+    assert.equal(afterReconfigure.liveUpdatedAt, undefined);
+    assert.deepEqual(afterReconfigure.items, []);
+    assert.equal(timers.size, 0);
+    assert.equal(sent.length, 0);
+
+    await dashboard.onClose({ instanceId: "populated" });
+    opened.delete("populated");
+    await assert.rejects(invoke("populated", "refresh"), { code: "instance_not_found" });
+    assert.equal((await open("populated", null)).result.status, "No triage state loaded");
+});
 
 test("normalizes a versioned triage dashboard input", () => {
     const result = normalizeTriageInput({
@@ -890,6 +1090,7 @@ test("uses legacy queue and day-plan guidance only when no structured plan exist
         ["Queue task", "Shared task", "Day task"],
     );
     assert.equal(lanes[0].levels[0][0].legacy, true);
+    assert.deepEqual(lanes[0].levels[0][0].gates, []);
 });
 
 test("rejects unknown and cyclic plan dependencies", () => {
@@ -984,6 +1185,7 @@ test("the renderer exposes live filters and guarded action controls", () => {
     assert.match(html, /renderSessionTasks\(state\.sessionTasks, state\.sessionDataError\)/);
     assert.match(html, /function createAdversarialReview\(review\)/);
     assert.match(html, /item\.adversarialReview/);
+    assert.ok(html.includes("matchAll(/#(\\d+)/g)"));
     assert.match(html, /Adversarial review: /);
     assert.match(html, /stale head/);
     assert.match(html, /function itemDecisionLabel\(item\)/);
@@ -1034,7 +1236,7 @@ test("the renderer exposes live filters and guarded action controls", () => {
       /catch \(error\) \{\s*showNotice\(error\.message\);\s*action\.disabled = false;/,
     );
     assert.match(html, /const refreshButton = event\.currentTarget;/);
-    assert.match(html, /finally \{\s*refreshButton\.disabled = false;/);
+    assert.match(html, /finally \{\s*refreshButton\.disabled = state\?\.isBootstrap === true;/);
     assert.doesNotMatch(html, /finally \{\s*event\.currentTarget\.disabled = false;/);
     assert.match(html, /actions\.append\(action\)/);
     assert.doesNotMatch(html, /actions\.append\(next\)/);
@@ -1303,11 +1505,11 @@ test("live GitHub collection and session review data are reflected in the canvas
     assert.match(source, /entry\.taskTimer = setInterval\(\(\) => refreshSessionData\(entry\), 2_000\)/);
     assert.match(
         source,
-        /catch \(error\) \{\s*entry\.triage = reconcileOpenInventory\(entry\.triage, entry\.pullRequests, entry\.issues\);/,
+        /catch \(error\) \{\s*if \(entry\.triage !== triage\) return entry\.state;\s*entry\.triage = reconcileOpenInventory\(entry\.triage, entry\.pullRequests, entry\.issues\);/,
     );
     assert.match(
         source,
-        /function reconfigureInstance\(entry, triage\) \{\s*entry\.triage = reconcileOpenInventory\(triage, entry\.pullRequests, entry\.issues\);/,
+        /entry\.triage = reconcileOpenInventory\(triage, entry\.pullRequests, entry\.issues\);\s*entry\.state = mergeSessionData/,
     );
 });
 

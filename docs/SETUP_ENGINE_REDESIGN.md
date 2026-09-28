@@ -10,6 +10,25 @@ The Setup Engine is a **config-driven system** for provisioning an OpenClaw WSL 
 
 The bundled `default-config.json` ships with the tray executable and provides secure defaults (loopback bind, WSL isolation, systemd enabled). Defaults can be overridden via config file or environment variables.
 
+WSL wizard completion restores `gateway.reload.mode` before explicitly restarting
+the Gateway. Gateway 2026.9.6 may refuse the guarded restart when it cannot verify
+a live serving owner; the rejected owner-lease predicate is not exposed by the
+public Gateway CLI. A reload-triggered supervisor transition is one possible
+timing explanation, not an established cause of every refusal. Observed service
+states differ: local diagnostics captured `activating/auto-restart` with no
+MainPID, while hosted generic refusals captured an `active/running` unit and a
+live PID. Neither snapshot establishes the admission-time owner-lease predicate.
+`SetupWizardRunner` recognizes only the exact
+serving-owner refusal, waits for verified managed endpoint ownership using the
+existing bounded provenance probe, and retries the normal CLI restart once.
+The probe allows up to 30 one-second retry delays, plus probe duration, for
+`NoListener` and `UnknownListener` tagged `ListenerSnapshotChanged`. Other
+unknown/conflicting listeners, other restart errors, and a repeated refusal still
+fail setup. Listener provenance does not prove owner-lease or coordinator
+readiness; the retried CLI command retains those guards. Restart-intent recording
+contention is a separate failure and is not retried here. There is no direct
+systemd restart fallback or ownership bypass.
+
 > **Status note (2026-07-06):** Current default setup includes `WindowsNodeBootstrapContextStep`, which injects Windows-node context into the WSL workspace `AGENTS.md` after onboarding.
 
 ---
@@ -125,6 +144,7 @@ rerun setup with a supported new name.
     "Bind": "loopback",
     "InstallUrl": null,
     "Version": null,
+    "FallbackVersion": null,
     "HealthTimeoutSeconds": 90,
     "ReloadMode": "hot",
     "AuthMode": "token",
@@ -199,6 +219,63 @@ Executed sequentially. Each step is a small class (30–120 lines) in its own fi
 | 22 | `RunGatewayWizardStep` | Run/configure the gateway wizard unless skipped |
 | 23 | `WindowsNodeBootstrapContextStep` | Inject Windows-node context into the WSL workspace `AGENTS.md` |
 | 24 | `StartKeepaliveStep` | Background WSL keepalive to prevent VM shutdown |
+
+The Windows port preflight requires a free port before installation. Installing
+the gateway service can start it immediately, so the subsequent WSL port check
+accepts listeners only when every reported owner PID matches the installed
+`openclaw-gateway.service` systemd `MainPID` in the configured distro. A process
+name such as `node` or `openclaw` alone is insufficient. Conflicts retain the
+port-in-use error and include owning process names when available. Missing
+listener ownership or a failed listener inspection does not bypass the check.
+
+### Local AI GPU admission
+
+Local AI uses the CUDA driver's `cuMemGetInfo` total and free memory directly
+for model qualification. DXGI and NVML dedicated-memory figures are not admission
+caps: on the 48 GB RTX Spark SKU they can describe only the 16 GB carveout,
+incorrectly excluding a supported unified-memory device. No separate shared or
+host-memory estimate is added to the CUDA readings. Missing CUDA facts remain
+retryable rather than becoming a definitive no-GPU verdict.
+
+This qualification is not a guarantee of successful inference. Default setup
+does not run inference to validate the selected model; the explicit inference
+proof and recovery pipelines still do. Runtime failures remain runtime errors.
+
+### Local AI Hugging Face cache rollout
+
+Normal Local AI model acquisition writes verified GGUF files to the standard
+Hugging Face hub cache selected by `HF_HUB_CACHE`,
+`HUGGINGFACE_HUB_CACHE`, or the platform default. The installer reuses a
+snapshot or content-addressed blob only through
+`HuggingFaceHubCache.TryOpenVerifiedCacheFileAsync`, and cross-volume
+materialization copies from that same verified open handle. A configured cache
+root equal to or below the app-owned `LocalAI` directory is rejected before
+mutation because uninstall removes that managed tree recursively.
+
+Manifest schema 3 remains the compatibility format for existing app-owned
+model paths. Passive manifest loads, status refresh, recovery inspection, and
+uninstall reads do not migrate it. Setup reconciliation is the explicit
+promotion gate: it verifies and copies the legacy model, atomically records a
+schema-4 cache receipt, then selects the verified snapshot path as active.
+Fresh installs write schema 4 directly while retaining the legacy relative
+`ModelPath` and a verified app-owned compatibility copy for recovery and for
+rollback to schema-4-aware transitional builds containing #1388
+(feat(local-ai): add verified legacy model cache migration). Schema-3-only
+releases do not understand a schema-4 `state.json`; the retained model bytes
+alone do not make a direct downgrade to those releases compatible. Rollback
+may remove a compatibility copy created by the current transaction, but it
+never removes the verified shared-cache source.
+
+Non-destructive Local AI recovery keeps the exact pre-recovery receipt as its
+rollback baseline. A successful repair always writes schema 4 with the verified
+hub-cache snapshot as the active model path, while preserving the legacy
+compatibility path and the prior gateway fallback, install time, and rollback
+metadata.
+
+Completed cache files and pre-existing resumable partials are shared state.
+Setup rollback and uninstall do not delete them. Unsafe links, reparse points,
+hard-linked partials, destination conflicts, receipt mismatches, and concurrent
+manifest changes fail closed.
 
 ### Step Base Class
 
@@ -326,7 +403,18 @@ OpenClaw.SetupEngine.Program.Main(["--log-path", "./trace.log"])
 ```
 
 Common flags include `--config`, `--headless`, `--dry-run`, `--rollback-on-failure`, `--no-rollback-on-failure`, `--log-path`, `--gateway-port`, and uninstall safety flags such as `--uninstall` plus `--confirm-destructive`.
-The cross-repository release gate may also pass `--gateway-candidate-package <absolute-tgz>` together with `--validate-gateway-candidate`, headless mode, and rollback-on-failure. This runtime-only input is not deserialized from setup config and does not authorize normal product setup to install an unvalidated release.
+Normal setup uses npm `latest`. `Gateway.Version` may select an upstream npm
+channel tag or an exact OpenClaw package version. `Gateway.FallbackVersion` may
+name an exact stable release to offer after a typed compatibility failure.
+Legacy `recommended`, `exact`, and `fallback` selections are migrated when the
+configuration is loaded. Legacy recommendation and fallback configurations
+without a recorded version follow the upstream `latest` and `extended-stable`
+tags. Explicit legacy versions remain exact. Custom installers still require an
+explicit exact version because they cannot resolve npm tags. The cross-repository
+release gate may pass
+`--gateway-candidate-package <absolute-tgz>` with
+`--validate-gateway-candidate`, headless mode, and rollback-on-failure. The
+package input is runtime-only and does not change normal npm setup.
 
 SetupEngine option names are case-insensitive. Value options accept either separated
 syntax (`--config custom.json`) or equals syntax (`--config=custom.json`). Unknown

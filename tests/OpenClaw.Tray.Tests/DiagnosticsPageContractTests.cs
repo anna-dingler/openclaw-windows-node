@@ -235,7 +235,7 @@ public sealed class DiagnosticsPageContractTests
         // Each copy handler must pass a human-readable label that
         // shows up in the feedback message.
         Assert.Contains("CopyDiagnosticText(\"Support context\"", cs);
-        Assert.Contains("CopyDiagnosticText(\r\n            \"Summary debug bundle\"", cs);
+        Assert.Contains("CopyDiagnosticText(\n            \"Summary debug bundle\"", cs.Replace("\r\n", "\n"));
         Assert.Contains("CopyDiagnosticText(\"Browser setup guidance\"", cs);
         Assert.Contains("CopyDiagnosticText(\"Port diagnostics\"", cs);
         Assert.Contains("CopyDiagnosticText(\"Capability diagnostics\"", cs);
@@ -425,6 +425,8 @@ public sealed class DiagnosticsPageContractTests
         Assert.Contains("OnGitHubLink", settingsXaml);
         Assert.Contains("OnDashboardLink", settingsXaml);
         Assert.Contains("RefreshGatewayInfo", settingsCs);
+        Assert.Contains("SettingsAppInfoProjection.ResolveDisplayVersion(", settingsCs);
+        Assert.Contains("PackageHelper.PackageVersion", settingsCs);
         Assert.Contains("\"settings\" or \"info\" or \"about\" => HubPageKind.Settings", registry);
         Assert.Contains("HubPageKind.Settings => typeof(SettingsPage)", registry);
         var repoRoot = TestRepositoryPaths.GetRepositoryRoot();

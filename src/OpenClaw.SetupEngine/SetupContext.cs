@@ -34,6 +34,8 @@ public sealed class SetupConfig
     public Dictionary<string, string>? WizardAnswers { get; set; }
     [JsonIgnore]
     public bool UsesBundledDefaultConfig { get; set; }
+    [JsonIgnore]
+    public string? LocalAiRecoveryGatewayId { get; set; }
 
     // Nested config sections — everything is configurable
     public WslConfig Wsl { get; set; } = new();
@@ -178,8 +180,15 @@ public sealed class GatewayConfig
 {
     public string Bind { get; set; } = "loopback";
     public string? InstallUrl { get; set; }
-    public string Selection { get; set; } = "recommended";
+    // Compatibility input from the former recommended/fallback/exact policy.
+    // ValidateAndApply translates it into Version and then clears it.
+    public string? Selection { get; set; }
+    // Upstream installer selector: null defaults to latest; tags and exact package versions are supported.
     public string? Version { get; set; }
+    // Optional exact stable version offered after a typed compatibility failure.
+    public string? FallbackVersion { get; set; }
+    [JsonIgnore]
+    public string? InstalledVersion { get; set; }
     // Runtime-only input for the explicit headless release-candidate validation lane.
     [JsonIgnore]
     public string? ValidationPackagePath { get; set; }
@@ -187,8 +196,6 @@ public sealed class GatewayConfig
     public string ReloadMode { get; set; } = "hybrid";
     public string AuthMode { get; set; } = "token";
     public Dictionary<string, string>? ExtraConfig { get; set; }
-    [JsonIgnore]
-    public GatewayReleaseResolution? ResolvedRelease { get; set; }
 }
 
 // ─── Capabilities Configuration ───
@@ -509,6 +516,9 @@ public sealed class SetupContext
     internal LlamaRuntimeInstallResult? LocalAiRuntimeInstall { get; set; }
     internal HuggingFaceModelInstallResult? LocalAiModelInstall { get; set; }
     internal LocalAiResolvedInstall? LocalAiResolvedInstall { get; set; }
+    internal LocalAiResolvedInstall? LocalAiRecoveryOriginalInstall { get; set; }
+    internal bool LocalAiRecoveryProviderTransition { get; set; }
+    internal bool LocalAiRecoveryReceiptRollbackAllowed { get; set; }
     internal bool LocalAiManifestCreatedThisRun { get; set; }
     internal ILocalAiRuntime? LocalAiRuntime { get; set; }
     internal HostHardwareInfo? LocalAiGpuBaseline { get; set; }
@@ -516,6 +526,7 @@ public sealed class SetupContext
     internal LocalAiGpuLoadEvidence? LocalAiGpuLoadEvidence { get; set; }
     internal LocalAiGatewayPriorState? LocalAiGatewayPriorState { get; set; }
     internal bool IsUninstalling { get; set; }
+    internal bool LocalAiRecoveryStoppedWsl { get; set; }
 
     // Data directory for gateway registry and identity files
     public string DataDir { get; }

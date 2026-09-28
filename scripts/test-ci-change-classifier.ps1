@@ -76,6 +76,12 @@ $allProductLanes = @(
 )
 $cases = @(
     @{
+        Scenario = "MSIX allocation baseline"
+        Paths = @(".github/msix-version-baseline.json")
+        Classification = "full"
+        Required = $fullPrLanes
+    },
+    @{
         Scenario = "Maintained documentation"
         Paths = @("README.md", "docs/TEST_COVERAGE.md", "docs/diagrams/ci.svg")
         Classification = "docs_only"
@@ -126,6 +132,12 @@ $cases = @(
         Paths = @("src/OpenClaw.SetupEngine/SetupOrchestrator.cs")
         Classification = "targeted"
         Required = @("tray_tests", "setup_e2e")
+    },
+    @{
+        Scenario = "Gateway install policy change"
+        Paths = @("src/OpenClaw.SetupEngine/GatewayInstallPolicy.cs")
+        Classification = "targeted"
+        Required = @("tray_tests", "setup_e2e", "revocation_e2e", "network_e2e")
     },
     @{
         Scenario = "Connection change"

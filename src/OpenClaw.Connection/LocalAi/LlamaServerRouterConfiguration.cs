@@ -1,3 +1,14 @@
+// <summary>
+// Builds the deterministic launch plan for the managed llama-server router: validates the
+// qualified install receipt against the runtime/model catalogs, emits the fixed loopback
+// argument list, environment (CUDA device pinning), and generates the lazy-load model preset
+// consumed by the router at startup.
+// Usage:
+//   var plan = LlamaServerRouterConfiguration.Build(paths, install);
+//   // plan.Arguments -> fixed loopback argv; plan.Environment -> CUDA device pinning;
+//   // plan.PresetPath / plan.PresetContent -> write PresetContent to PresetPath before launch;
+//   // plan.ModelAlias -> the model id the router exposes.
+// </summary>
 using OpenClaw.Shared.Inference.Catalog;
 using System.Collections.Immutable;
 using System.Globalization;
@@ -19,10 +30,25 @@ public static class LlamaServerRouterConfiguration
     public static LlamaServerRouterLaunchPlan Build(
         LocalAiPaths paths,
         LocalAiResolvedInstall install,
-        int? listenPort = null)
+        int? listenPort = null) =>
+        BuildCore(paths, install, install.ModelPath, listenPort);
+
+    internal static LlamaServerRouterLaunchPlan BuildForVerifiedRuntime(
+        LocalAiPaths paths,
+        LocalAiResolvedInstall install,
+        string verifiedModelPath,
+        int? listenPort = null) =>
+        BuildCore(paths, install, verifiedModelPath, listenPort);
+
+    private static LlamaServerRouterLaunchPlan BuildCore(
+        LocalAiPaths paths,
+        LocalAiResolvedInstall install,
+        string modelPath,
+        int? listenPort)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(install);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
 
         LocalAiInstallManifest manifest = install.Manifest;
         int port = listenPort ?? manifest.RequestedPort;
@@ -33,7 +59,7 @@ public static class LlamaServerRouterConfiguration
         LocalModelInfo model = LocalModelCatalog.FindInstalled(manifest.ModelCatalogId)
             ?? throw new InvalidDataException("The managed local AI model is no longer qualified.");
 
-        LocalInferenceRunProfile profile = ValidateQualifiedReceipt(manifest, runtime, model);
+        LocalInferenceRunProfile profile = ResolveQualifiedReceipt(manifest, runtime, model);
 
         string presetPath = paths.ResolveContainedPath(
             Path.GetRelativePath(paths.RootDirectory, paths.RouterPresetPath),
@@ -58,11 +84,28 @@ public static class LlamaServerRouterConfiguration
                 .WithComparers(StringComparer.OrdinalIgnoreCase)
                 .Add("CUDA_VISIBLE_DEVICES", manifest.SelectedGpuId),
             presetPath,
-            BuildPreset(model, profile, install.ModelPath),
+            BuildPreset(model, profile, modelPath),
             model.Id);
     }
 
-    private static LocalInferenceRunProfile ValidateQualifiedReceipt(
+    private static LocalInferenceRunProfile ResolveQualifiedReceipt(
+        LocalAiInstallManifest manifest,
+        LlamaRuntimeVariant runtime,
+        LocalModelInfo model)
+    {
+        ValidateArtifactReceipts(manifest, runtime, model);
+        return LocalModelCatalog.FindProfile(
+            model,
+            manifest.ContextLength,
+            manifest.KeyCachePrecision,
+            manifest.ValueCachePrecision,
+            manifest.DraftKeyCachePrecision,
+            manifest.DraftValueCachePrecision)
+            ?? throw new InvalidDataException(
+                "The managed local AI context and KV cache receipt do not match a qualified catalog profile.");
+    }
+
+    internal static void ValidateArtifactReceipts(
         LocalAiInstallManifest manifest,
         LlamaRuntimeVariant runtime,
         LocalModelInfo model)
@@ -83,16 +126,6 @@ public static class LlamaServerRouterConfiguration
             throw new InvalidDataException("The managed local AI model recipe receipt does not match the qualified catalog.");
         }
 
-        LocalInferenceRunProfile profile = LocalModelCatalog.FindProfile(
-            model,
-            manifest.ContextLength,
-            manifest.KeyCachePrecision,
-            manifest.ValueCachePrecision,
-            manifest.DraftKeyCachePrecision,
-            manifest.DraftValueCachePrecision)
-            ?? throw new InvalidDataException(
-                "The managed local AI context and KV cache receipt do not match a qualified catalog profile.");
-
         if (manifest.RuntimeAssets.Length != runtime.Artifacts.Count ||
             runtime.Artifacts.Any(artifact => !manifest.RuntimeAssets.Any(receipt =>
                 string.Equals(receipt.FileName, Path.GetFileName(artifact.RelativePath), StringComparison.Ordinal) &&
@@ -112,8 +145,6 @@ public static class LlamaServerRouterConfiguration
         {
             throw new InvalidDataException("The managed model artifact receipt does not match the qualified catalog.");
         }
-
-        return profile;
     }
 
     private static string BuildPreset(

@@ -6,6 +6,21 @@ namespace OpenClaw.Tray.Tests;
 public sealed class AppRefactorContractTests
 {
     [Fact]
+    public void E2ESetupTeardown_UsesFixtureOwnedUninstallArguments()
+    {
+        var root = TestRepositoryPaths.GetRepositoryRoot();
+        var source = File.ReadAllText(Path.Combine(
+            root, "tests", "OpenClaw.E2ETests", "Setup", "E2ESetupFixture.cs"));
+        var teardown = ExtractMethod(source, "DisposeEnabledAsync");
+
+        // Retire when teardown can be invoked without starting real WSL/tray cleanup.
+        // Behavioral argument coverage lives in SetupAndConnectTestsUninstallIsolation.
+        Assert.Contains(
+            "Program.Main(BuildUninstallArguments(_configPath, _distroName, uninstallLogPath))",
+            teardown);
+    }
+
+    [Fact]
     public void Startup_UsesConnectionManagerAsOnlyGatewayClientOwner()
     {
         var source = ReadAppSources();
@@ -32,7 +47,6 @@ public sealed class AppRefactorContractTests
             "AppUserModelIdRegistrar.RegisterCurrentProcess(AppIdentity.AppUserModelId);",
             "appUserModelIdRegistration.Attempted",
             "_settings = new SettingsManager();",
-            "CheckForUpdatesAsync();",
             "ToastNotificationManagerCompat.OnActivated += OnToastActivated;",
             "InitializeTrayIcon();",
             "_gatewayRegistry = new GatewayRegistry",
@@ -40,7 +54,19 @@ public sealed class AppRefactorContractTests
             "await ShowOnboardingAsync();",
             "EnsureNodeService(_settings);",
             "InitializeGatewayClient();",
+            "CheckForUpdatesAsync();",
             "await _activationRouter.StartForwardedActivationListenerAsync(this, CancellationToken.None);");
+    }
+
+    [Fact]
+    public void ExtendedStableUpdatePolicy_RemainsOutsideAppCompositionRoot()
+    {
+        var source = ReadAppSources();
+
+        Assert.Contains("() => _connectionManager?.OperatorClient,", source);
+        AssertInOrder(source, "InitializeGatewayClient();", "CheckForUpdatesAsync();");
+        Assert.DoesNotContain("extended-stable", source);
+        Assert.DoesNotContain("GetUpdateStatusAsync", source);
     }
 
     [Fact]
@@ -965,7 +991,12 @@ public sealed class AppRefactorContractTests
 
         Assert.Contains("AutomationProperties.Name=\"{Binding RemoveRuleAutomationName}\"", xaml);
         Assert.Contains("AutomationProperties.AutomationId=\"{Binding RemoveRuleAutomationId}\"", xaml);
-        Assert.Contains("RemoveRuleAutomationName = $\"Remove allowlist entry {rule.Pattern}\"", codeBehind);
+        Assert.Contains("\"PermissionsPage_ExecRuleScope_Wildcard\"", codeBehind);
+        Assert.Contains("\"PermissionsPage_ExecRuleScope_Main\"", codeBehind);
+        Assert.Contains("DisplayText = $\"{rule.Pattern} ({scopeLabel})\"", codeBehind);
+        Assert.Contains("\"PermissionsPage_RemoveRuleAutomationNameFormat\"", codeBehind);
+        Assert.Contains("\"PermissionsPage_ExecRuleAction_Inactive\"", codeBehind);
+        Assert.Contains("\"SystemFillColorNeutralBrush\"", codeBehind);
         Assert.Contains("RemoveRuleAutomationId = $\"RemoveExecPolicyRuleButton_{index}\"", codeBehind);
     }
 
@@ -1311,7 +1342,7 @@ public sealed class AppRefactorContractTests
     }
 
     [Fact]
-    public void CompletePage_OffersExactFallbackOnlyThroughTypedCompatibilityPath()
+    public void CompletePage_OffersConfiguredFallbackOnlyThroughTypedCompatibilityPath()
     {
         var root = TestRepositoryPaths.GetRepositoryRoot();
         var setupWindow = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "SetupWindow.xaml.cs"));
@@ -1319,9 +1350,9 @@ public sealed class AppRefactorContractTests
         var progress = File.ReadAllText(Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages", "ProgressPage.xaml.cs"));
 
         Assert.Contains("result.CompatibilityFailure", progress);
-        Assert.Contains("GatewayReleasePolicy.CanRetryWithFallback(_config, failureKind)", setupWindow);
-        Assert.Contains("GatewayReleasePolicy.TryApplyFallback(_config, out error)", setupWindow);
-        Assert.Contains("Retry with validated fallback {args.GatewayFallbackVersion}", complete);
+        Assert.Contains("GatewayInstallPolicy.CanRetryWithFallback(_config, failureKind)", setupWindow);
+        Assert.Contains("GatewayInstallPolicy.TryApplyFallback(_config, out error)", setupWindow);
+        Assert.Contains("Retry with fallback {args.GatewayFallbackVersion}", complete);
         Assert.Contains("FallbackButton.Visibility = args.CanRetryGatewayFallback", complete);
     }
 
@@ -1812,6 +1843,29 @@ public sealed class AppRefactorContractTests
     }
 
     [Fact]
+    public void SetupWelcomePage_ConstrainsTheViewportAndStretchesItsChoices()
+    {
+        var root = TestRepositoryPaths.GetRepositoryRoot();
+        var page = XDocument.Load(Path.Combine(
+            root, "src", "OpenClaw.SetupEngine.UI", "Pages", "WelcomePage.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace names = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var choices = Assert.Single(page.Descendants(xaml + "ListView"),
+            element => (string?)element.Attribute(names + "Name") == "GatewayChoiceSelector");
+        var viewport = choices.Parent!;
+
+        Assert.Equal(xaml + "ScrollViewer", viewport.Name);
+        Assert.Equal("560", (string?)viewport.Attribute("MaxWidth"));
+        Assert.Equal("Stretch", (string?)viewport.Attribute("HorizontalAlignment"));
+        Assert.Equal("Stretch", (string?)viewport.Attribute("HorizontalContentAlignment"));
+        Assert.Null(choices.Attribute("MaxWidth"));
+        Assert.Equal("Stretch", (string?)choices.Attribute("HorizontalAlignment"));
+        Assert.Equal("Stretch", (string?)choices.Attribute("HorizontalContentAlignment"));
+        Assert.All(choices.Elements(xaml + "ListViewItem"), item =>
+            Assert.Equal("Stretch", (string?)item.Attribute("HorizontalContentAlignment")));
+    }
+
+    [Fact]
     public void SetupWelcomePage_KeepsNavigationOutsideScrollableSemanticChoices()
     {
         var root = TestRepositoryPaths.GetRepositoryRoot();
@@ -2000,12 +2054,17 @@ public sealed class AppRefactorContractTests
     {
         var source = ReadSandboxPageSource();
         var actionBar = ExtractMethod(source, "UpdateUnavailableActionBar");
+        var windowsCapability = ExtractMethod(source, "IsWindowsSandboxCapabilityUnavailable");
 
         AssertInOrder(
             actionBar,
             "var isSetupIssue",
             "!availability.ProbeSuppressedBySkuGate",
             "!availability.IsWxcExecResolvable");
+        Assert.Contains("IsWindowsSandboxCapabilityUnavailable(availability)", actionBar);
+        Assert.Contains("!availability.ProbeErrored", windowsCapability);
+        Assert.Contains("availability.IsWxcExecResolvable", windowsCapability);
+        Assert.Contains("!availability.CanRunSystemRunSandbox", windowsCapability);
     }
 
     [Fact]
@@ -2025,7 +2084,10 @@ public sealed class AppRefactorContractTests
             "return;");
         Assert.Contains("SandboxEnabledToggle.IsOn = false", reject);
         Assert.Contains("Node Sandbox unavailable", reject);
-        Assert.Contains("MXC BaseContainer without host DACL augmentation", reject);
+        Assert.Contains("IsWindowsSandboxCapabilityUnavailable(availability)", reject);
+        Assert.Contains("SandboxPage_WindowsUnsupportedTitle", reject);
+        Assert.Contains("SandboxPage_WindowsUnsupportedMessageFormat", reject);
+        Assert.Contains("SandboxPage_UnavailableBehaviorHostFallback", reject);
     }
 
     private static string ReadCoordinatorSource()

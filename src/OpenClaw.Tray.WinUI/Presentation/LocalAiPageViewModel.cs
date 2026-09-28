@@ -132,9 +132,14 @@ internal sealed class LocalAiPageViewModel : INavigationAware, IDisposable, INot
     public bool CanRecheckAvailability => _hasAvailabilityProbeError && _availabilityCancellation is null && !IsBusy;
     public LocalInferenceUnavailableReason? LocalAiUnavailableReason => _localAiUnavailableReason;
     public bool CanStart => !IsBusy && HasManagedInstall &&
-        _runtimeSnapshot.State is LocalAiRuntimeState.Stopped or LocalAiRuntimeState.Failed;
-    public bool CanStop => !IsBusy && _runtimeSnapshot.Ownership == LocalAiOwnership.CompanionManaged &&
-        _runtimeSnapshot.State is LocalAiRuntimeState.Starting or LocalAiRuntimeState.Healthy;
+        (_runtimeSnapshot.State == LocalAiRuntimeState.Stopped ||
+            (_runtimeSnapshot.State == LocalAiRuntimeState.Failed &&
+                _runtimeSnapshot.Ownership != LocalAiOwnership.CompanionManaged));
+    public bool CanStop => !IsBusy &&
+        (_runtimeSnapshot.State is LocalAiRuntimeState.Conflict or LocalAiRuntimeState.Failed ||
+            (HasManagedInstall &&
+                _runtimeSnapshot.Ownership == LocalAiOwnership.CompanionManaged &&
+                _runtimeSnapshot.State is LocalAiRuntimeState.Starting or LocalAiRuntimeState.Healthy));
     public bool CanRestart => !IsBusy && _runtimeSnapshot.Ownership == LocalAiOwnership.CompanionManaged &&
         _runtimeSnapshot.State == LocalAiRuntimeState.Healthy;
     public bool CanOpenLogs => !IsBusy && HasManagedInstall;
@@ -188,7 +193,7 @@ internal sealed class LocalAiPageViewModel : INavigationAware, IDisposable, INot
     public Task<bool> StopAsync() => RunRuntimeActionAsync(CanStop, _runtime.StopAsync);
     public Task<bool> RestartAsync() => RunRuntimeActionAsync(CanRestart, _runtime.RestartAsync);
     public bool OpenLogs() => RunCommand(CanOpenLogs, _appCommands.OpenLocalAiLogs);
-    public bool RetrySetup() => RunCommand(CanRetrySetup, _appCommands.ShowOnboarding);
+    public bool RetrySetup() => RunCommand(CanRetrySetup, _appCommands.ShowLocalAiSetup);
     public bool ChangeModel() => RunCommand(CanChangeModel, _appCommands.ShowOnboarding);
     public bool RepairConnection() => RunCommand(CanRepairConnection, _appCommands.Reconnect);
     public bool OpenChat() => RunCommand(CanOpenChat, _appCommands.ShowChat);

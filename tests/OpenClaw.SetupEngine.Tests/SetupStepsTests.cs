@@ -1939,12 +1939,18 @@ public class SetupStepsTests : IDisposable
     }
 
     [Fact]
-    public void InstallCli_BuildInstallCommand_RejectsMissingExactVersion()
+    public void InstallCli_BuildInstallCommand_DefaultsToInstallerLatest()
     {
-        var error = Assert.Throws<ArgumentException>(
-            () => InstallCliStep.BuildInstallCommand("https://openclaw.ai/install-cli.sh", null));
+        var command = InstallCliStep.BuildInstallCommand(
+            "https://openclaw.ai/install-cli.sh",
+            null,
+            GatewayInstallPolicy.NodeVersion);
 
-        Assert.Contains("exact version", error.Message);
+        Assert.Contains(
+            $"bash -s -- --node-version '{GatewayInstallPolicy.NodeVersion}' < \"$installer\"",
+            command);
+        Assert.DoesNotContain(" --version ", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("| bash", command, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1953,7 +1959,7 @@ public class SetupStepsTests : IDisposable
         var command = InstallCliStep.BuildInstallCommand(
             "https://openclaw.ai/install-cli.sh",
             "2026.5.22",
-            GatewayReleasePolicy.NodeVersion);
+            GatewayInstallPolicy.NodeVersion);
 
         Assert.StartsWith("set -euo pipefail", command);
         Assert.Contains("umask 077", command);
@@ -1980,8 +1986,8 @@ public class SetupStepsTests : IDisposable
         var step = new InstallCliStep();
         var command = InstallCliStep.BuildInstallCommand(
             "https://openclaw.ai/install-cli.sh",
-            GatewayReleasePolicy.RecommendedVersion,
-            GatewayReleasePolicy.NodeVersion);
+            null,
+            GatewayInstallPolicy.NodeVersion);
 
         Assert.Equal(2, step.Retry.MaxAttempts);
         Assert.Equal(TimeSpan.FromSeconds(5), step.Retry.EffectiveInitialDelay);
@@ -1997,13 +2003,13 @@ public class SetupStepsTests : IDisposable
         var production = InstallCliStep.BuildInstallCommand(
             "https://openclaw.ai/install-cli.sh",
             "2026.5.22",
-            GatewayReleasePolicy.NodeVersion,
+            GatewayInstallPolicy.NodeVersion,
             installerDirectory);
 
         var preview = InstallCliStep.BuildInstallCommandPreview(
             "https://openclaw.ai/install-cli.sh",
             "2026.5.22",
-            GatewayReleasePolicy.NodeVersion);
+            GatewayInstallPolicy.NodeVersion);
 
         Assert.Equal(
             production.Replace(
@@ -2033,6 +2039,27 @@ public class SetupStepsTests : IDisposable
     }
 
     [Fact]
+    public async Task InstallCli_InstallFailureSurfacesStdoutWhenStderrIsEmpty()
+    {
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) => command.Contains("curl -fsSL", StringComparison.Ordinal)
+                ? FailWithStdout("ERROR: Node 22.22.3 is unsupported; use Node 24.16.0+.")
+                : command.StartsWith("rm -rf -- /tmp/openclaw-installer-", StringComparison.Ordinal)
+                    ? Ok()
+                    : throw new InvalidOperationException($"Unexpected command: {command}"));
+        var config = new SetupConfig();
+        GatewayInstallPolicy.ValidateAndApply(config);
+        var ctx = CreateContext(config, commands);
+
+        var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.Equal(StepOutcome.Failed, result.Outcome);
+        Assert.Contains("Node 22.22.3 is unsupported", result.Message);
+        AssertCleanupRan(commands);
+    }
+
+    [Fact]
     public void InstallCli_BuildInstallCommand_EscapesSingleQuotesInUrlAndVersion()
     {
         var command = InstallCliStep.BuildInstallCommand("https://openclaw.ai/install-cli's.sh", "2026.5.22'a");
@@ -2052,7 +2079,7 @@ public class SetupStepsTests : IDisposable
                     ? Ok()
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2086,15 +2113,15 @@ public class SetupStepsTests : IDisposable
                 }
 
                 if (command.Contains("tools/node/bin/node --version", StringComparison.Ordinal))
-                    return Ok($"v{GatewayReleasePolicy.NodeVersion}");
+                    return Ok($"v{GatewayInstallPolicy.NodeVersion}");
                 if (command.EndsWith("openclaw --version", StringComparison.Ordinal))
-                    return Ok($"OpenClaw {GatewayReleasePolicy.RecommendedVersion}");
+                    return Ok("OpenClaw 2026.5.22");
                 if (command.StartsWith("rm -rf -- /tmp/openclaw-installer-", StringComparison.Ordinal))
                     return Ok();
                 return Ok();
             });
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
         var step = new InstallCliStep();
 
@@ -2128,7 +2155,7 @@ public class SetupStepsTests : IDisposable
                     ? Ok()
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2155,7 +2182,7 @@ public class SetupStepsTests : IDisposable
                     ? Ok()
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2183,7 +2210,7 @@ public class SetupStepsTests : IDisposable
                     ? Ok()
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2210,7 +2237,7 @@ public class SetupStepsTests : IDisposable
                     ? Ok()
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2239,7 +2266,7 @@ public class SetupStepsTests : IDisposable
                     : throw new InvalidOperationException($"Unexpected command: {command}");
             });
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -2266,7 +2293,7 @@ public class SetupStepsTests : IDisposable
                     ? throw new IOException("cleanup launch failed")
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         StepResult result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2296,7 +2323,7 @@ public class SetupStepsTests : IDisposable
                     : throw new InvalidOperationException($"Unexpected command: {command}");
             });
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         await Assert.ThrowsAsync<OperationCanceledException>(
@@ -2323,7 +2350,7 @@ public class SetupStepsTests : IDisposable
                     ? throw new OperationCanceledException(cleanupCancellation.Token)
                     : throw new InvalidOperationException($"Unexpected command: {command}"));
         var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        GatewayInstallPolicy.ValidateAndApply(config);
         var ctx = CreateContext(config, commands);
 
         StepResult result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2348,6 +2375,97 @@ public class SetupStepsTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(15), cleanup.Timeout);
         Assert.False(cleanup.InputViaStdin);
         return cleanup;
+    }
+
+    [Fact]
+    public async Task InstallCli_LatestInstallRecordsResolvedVersion()
+    {
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) =>
+            {
+                if (command.StartsWith("curl ", StringComparison.Ordinal))
+                    return Ok();
+                if (command.Contains("tools/node/bin/node --version", StringComparison.Ordinal))
+                    return Ok($"v{GatewayInstallPolicy.NodeVersion}");
+                if (command.EndsWith("openclaw --version", StringComparison.Ordinal))
+                    return Ok("OpenClaw 2026.8.1");
+                return Ok();
+            });
+        var config = new SetupConfig();
+        var ctx = CreateContext(config, commands);
+
+        var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(config.Gateway.Version);
+        Assert.Equal("2026.8.1", config.Gateway.InstalledVersion);
+        Assert.Contains(
+            commands.WslCalls,
+            call => call.Command.Contains("curl -fsSL", StringComparison.Ordinal) &&
+                    !call.Command.Contains(" --version '", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InstallCli_ChannelInstallRecordsResolvedVersionAndRetainsSelector()
+    {
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) =>
+            {
+                if (command.StartsWith("curl ", StringComparison.Ordinal))
+                    return Ok();
+                if (command.Contains("tools/node/bin/node --version", StringComparison.Ordinal))
+                    return Ok($"v{GatewayInstallPolicy.NodeVersion}");
+                if (command.EndsWith("openclaw --version", StringComparison.Ordinal))
+                    return Ok("OpenClaw 2026.9.2-beta.3");
+                return Ok();
+            });
+        var config = new SetupConfig
+        {
+            Gateway = new GatewayConfig { Version = "beta" }
+        };
+        var ctx = CreateContext(config, commands);
+
+        var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("beta", config.Gateway.Version);
+        Assert.Equal("2026.9.2-beta.3", config.Gateway.InstalledVersion);
+        Assert.Contains(
+            commands.WslCalls,
+            call => call.Command.Contains("--version 'beta'", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InstallCli_ExactInstallRetainsPinAndRecordsInstalledVersion()
+    {
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) =>
+            {
+                if (command.StartsWith("curl ", StringComparison.Ordinal))
+                    return Ok();
+                if (command.Contains("tools/node/bin/node --version", StringComparison.Ordinal))
+                    return Ok($"v{GatewayInstallPolicy.NodeVersion}");
+                if (command.EndsWith("openclaw --version", StringComparison.Ordinal))
+                    return Ok("OpenClaw 2026.6.34");
+                return Ok();
+            });
+        var config = new SetupConfig
+        {
+            Gateway = new GatewayConfig { Version = "2026.6.34" }
+        };
+        var ctx = CreateContext(config, commands);
+
+        var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("2026.6.34", config.Gateway.Version);
+        Assert.Equal("2026.6.34", config.Gateway.InstalledVersion);
+        Assert.Contains(
+            commands.WslCalls,
+            call => call.Command.Contains("--version '2026.6.34'", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2394,8 +2512,10 @@ public class SetupStepsTests : IDisposable
             (_, command, _) => command.Contains("--version", StringComparison.Ordinal)
                 ? Ok("OpenClaw 2026.7.1-2")
                 : Ok());
-        var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        var config = new SetupConfig
+        {
+            Gateway = new GatewayConfig { Version = "2026.6.34" }
+        };
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -2417,11 +2537,13 @@ public class SetupStepsTests : IDisposable
                 if (command.Contains("tools/node/bin/node --version", StringComparison.Ordinal))
                     return Ok("v24.15.0");
                 if (command.EndsWith("openclaw --version", StringComparison.Ordinal))
-                    return Ok($"OpenClaw {GatewayReleasePolicy.RecommendedVersion}");
+                    return Ok("OpenClaw 2026.8.1");
                 return Ok();
             });
-        var config = new SetupConfig();
-        GatewayReleasePolicy.ResolveAndApply(config);
+        var config = new SetupConfig
+        {
+            Gateway = new GatewayConfig { Version = "2026.8.1" }
+        };
         var ctx = CreateContext(config, commands);
 
         var result = await new InstallCliStep().ExecuteAsync(ctx, CancellationToken.None);
@@ -3958,6 +4080,120 @@ public class SetupStepsTests : IDisposable
             decision.Result.Message);
     }
 
+    [Theory]
+    [InlineData("node", "321", true, null)]
+    [InlineData("openclaw-gateway", "321", true, null)]
+    [InlineData("node", "999", false, "already in use by another process")]
+    [InlineData("other-openclaw", "999", false, "already in use by another process")]
+    [InlineData("python3", "0", false, "valid MainPID")]
+    [InlineData("node", "", false, "valid MainPID")]
+    public async Task StartGateway_AfterFreePortAndInstall_RequiresServiceOwnedListener(
+        string processName, string mainPid, bool expectedSuccess, string? expectedFailure)
+    {
+        var port = GetFreeTcpPort();
+        var installed = false;
+        var commands = new FakeCommandRunner(
+            _ => throw new InvalidOperationException("Unexpected Windows command"),
+            (_, command, _) =>
+            {
+                if (command.Contains("openclaw gateway install --force"))
+                {
+                    installed = true;
+                    return Ok();
+                }
+                Assert.True(installed);
+                return command switch
+                {
+                    var value when value == $"ss -H -ltnp 'sport = :{port}'" =>
+                        Ok($"LISTEN 0 511 127.0.0.1:{port} 0.0.0.0:* users:((\"{processName}\",pid=321,fd=22))"),
+                    "systemctl --user show openclaw-gateway.service -p MainPID --value" => Ok(mainPid),
+                    var value when value.Contains("openclaw gateway start") => Ok(),
+                    var value when value.Contains("curl -s") => Ok("200"),
+                    _ => throw new InvalidOperationException($"Unexpected command: {command}"),
+                };
+            });
+        var ctx = CreateContext(new SetupConfig { GatewayPort = port }, commands);
+        ctx.DistroName = "test-distro";
+
+        Assert.True((await new PreflightPortStep().ExecuteAsync(ctx, CancellationToken.None)).IsSuccess);
+        Assert.True((await new InstallGatewayServiceStep().ExecuteAsync(ctx, CancellationToken.None)).IsSuccess);
+        var result = await new StartGatewayStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+        Assert.All(commands.WslCalls, call => Assert.Equal(ctx.DistroName, call.DistroName));
+        if (!expectedSuccess)
+        {
+            Assert.Contains(expectedFailure!, result.Message);
+            Assert.DoesNotContain(commands.WslCalls, call => call.Command.Contains("openclaw gateway start") || call.Command.Contains("curl -s"));
+        }
+    }
+
+    [Theory]
+    [InlineData("", "0", 0, 0, true, null)]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22))\nLISTEN 0 511 [::1]:18789 *:* users:((\"node\",pid=321,fd=23))", "321", 0, 0, true, null)]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:*", "321", 0, 0, false, "Could not determine which process owns")]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22))\nLISTEN 0 511 [::1]:18789 *:* users:((\"python3\",pid=999,fd=23))", "321", 0, 0, false, "Listener PIDs outside openclaw-gateway.service: 999")]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22),(\"python3\",pid=999,fd=23))", "321", 0, 0, false, "Listener PIDs outside openclaw-gateway.service: 999")]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22))", "321", 1, 0, false, "ss unavailable")]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22))", "321", 0, 1, false, "service unavailable")]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22))", "abc", 0, 0, false, "valid MainPID: abc")]
+    [InlineData("LISTEN 0 511 127.0.0.1:18789 *:* users:((\"node\",pid=321,fd=22))", "-1", 0, 0, false, "valid MainPID: -1")]
+    public async Task StartGateway_PortInspection_RejectsUnownedOrUnreadableListeners(
+        string listeners,
+        string mainPid,
+        int inspectionExitCode,
+        int serviceExitCode,
+        bool expectedSuccess,
+        string? expectedMessage)
+    {
+        var commands = new FakeCommandRunner(_ => Ok(), (_, command, _) => command switch
+        {
+            var value when value.StartsWith("ss -H") => new CommandResult(
+                inspectionExitCode,
+                listeners,
+                inspectionExitCode == 0 ? "" : "ss unavailable",
+                TimeSpan.Zero,
+                false),
+            var value when value.StartsWith("systemctl --user show") => new CommandResult(
+                serviceExitCode,
+                mainPid,
+                serviceExitCode == 0 ? "" : "service unavailable",
+                TimeSpan.Zero,
+                false),
+            var value when value.Contains("openclaw gateway start") => Ok(),
+            var value when value.Contains("curl -s") => Ok("200"),
+            _ => throw new InvalidOperationException($"Unexpected command: {command}"),
+        });
+        var ctx = CreateContext(commands: commands);
+        ctx.DistroName = "test-distro";
+
+        var result = await new StartGatewayStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.Equal(expectedSuccess, result.IsSuccess);
+        if (!expectedSuccess)
+            Assert.Contains(expectedMessage!, result.Message);
+    }
+
+    [Fact]
+    public async Task PreflightPort_ForeignListener_BlocksBeforeServiceInstall()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0) { ExclusiveAddressUse = true };
+        listener.Start();
+        var commands = new FakeCommandRunner(_ => throw new InvalidOperationException("Must not install"));
+        var ctx = CreateContext(new SetupConfig { GatewayPort = ((IPEndPoint)listener.LocalEndpoint).Port }, commands);
+
+        var result = await new PreflightPortStep().ExecuteAsync(ctx, CancellationToken.None);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("already in use", result.Message);
+        if (OperatingSystem.IsWindows())
+        {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            Assert.Contains(process.ProcessName, result.Message);
+        }
+        Assert.Empty(commands.WslCalls);
+    }
+
     [Fact]
     public async Task StartGateway_RestartUsesRestartCommandAndWaitsForHealth()
     {
@@ -3980,7 +4216,7 @@ public class SetupStepsTests : IDisposable
         Assert.True(result.IsSuccess, result.Message);
         Assert.DoesNotContain(
             commands.WslCalls,
-            call => call.Command.Contains("ss -tlnp"));
+            call => call.Command.StartsWith("ss "));
         Assert.Contains(
             commands.WslCalls,
             call => call.Command.Contains("openclaw gateway restart"));
@@ -4028,6 +4264,95 @@ public class SetupStepsTests : IDisposable
 
         Assert.True(result.IsSuccess, result.Message);
         AssertReloadRestorationCompleted(commands);
+    }
+
+    [Fact]
+    public async Task SetupWizard_RestartOwnerGapReverifiesOwnershipBeforeOneRetry()
+    {
+        var restarts = 0;
+        var inspections = 0;
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) => command switch
+            {
+                var value when value.Contains("config set gateway.reload.mode") => Ok(),
+                var value when value.Contains("openclaw gateway restart") => Restart(),
+                var value when value.Contains("curl -s") => Ok("200"),
+                _ => Fail($"Unexpected command: {command}"),
+            });
+        var ctx = CreateContext(commands: commands);
+        ctx.DistroName = "test-distro";
+        ctx.EndpointProvenanceProbe = (_, _) =>
+        {
+            inspections++;
+            return Task.FromResult(new GatewayEndpointProvenance(
+                inspections == 1
+                    ? GatewayEndpointProvenanceKind.NoListener
+                    : GatewayEndpointProvenanceKind.ExpectedManagedGateway,
+                ctx.Config.GatewayPort));
+        };
+
+        var result = await new SetupWizardRunner(ctx).RestoreReloadModeAsync();
+
+        Assert.True(result.IsSuccess, result.Message);
+        Assert.Equal(2, restarts);
+        Assert.Equal(3, inspections);
+        Assert.DoesNotContain(commands.WslCalls, call => call.Command.Contains("systemctl"));
+        return;
+
+        CommandResult Restart()
+        {
+            if (++restarts == 1)
+                return Fail(SetupWizardRunner.RestartServingOwnerDiagnostic);
+            Assert.Equal(2, inspections);
+            return Ok();
+        }
+    }
+
+    [Theory]
+    [InlineData(GatewayEndpointProvenanceKind.UnknownListener)]
+    [InlineData(GatewayEndpointProvenanceKind.ConflictingOpenClawGateway)]
+    public async Task SetupWizard_RestartOwnerGapDoesNotRetryAnUntrustedListener(
+        GatewayEndpointProvenanceKind kind)
+    {
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) => command.Contains("config set gateway.reload.mode")
+                ? Ok()
+                : Fail(SetupWizardRunner.RestartServingOwnerDiagnostic));
+        var ctx = CreateContext(commands: commands);
+        ctx.DistroName = "test-distro";
+        ctx.EndpointProvenanceProbe = (_, _) => Task.FromResult(
+            new GatewayEndpointProvenance(kind, ctx.Config.GatewayPort));
+
+        var result = await new SetupWizardRunner(ctx).RestoreReloadModeAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("ownership verification failed", result.Message);
+        Assert.Single(commands.WslCalls, call => call.Command.Contains("openclaw gateway restart"));
+    }
+
+    [Theory]
+    [InlineData(SetupWizardRunner.RestartServingOwnerDiagnostic, 2)]
+    [InlineData("GATEWAY_RESTART_PREPARATION_REFUSED: Cannot verify the selected service command.", 1)]
+    [InlineData("StateDatabaseCoordinatorContentionError: another OpenClaw process owns state-lifecycle. GATEWAY_RESTART_PREPARATION_REFUSED: Cannot record restart intent for the serving Gateway. Gateway was not signaled.", 1)]
+    [InlineData("Unrelated restart failure", 1)]
+    public async Task SetupWizard_RestartRetryRemainsBoundedAndSpecific(string error, int expectedRestarts)
+    {
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) => command.Contains("config set gateway.reload.mode") ? Ok() : Fail(error));
+        var ctx = CreateContext(commands: commands);
+        ctx.DistroName = "test-distro";
+        TrustManagedEndpoint(ctx);
+
+        var result = await new SetupWizardRunner(ctx).RestoreReloadModeAsync();
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(error, result.Message);
+        Assert.Equal(expectedRestarts,
+            commands.WslCalls.Count(call => call.Command.Contains("openclaw gateway restart")));
+        Assert.DoesNotContain(commands.WslCalls, call => call.Command.Contains("systemctl"));
     }
 
     [Fact]

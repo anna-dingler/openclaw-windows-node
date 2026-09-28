@@ -204,6 +204,9 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     private readonly SshTunnelRecoveryBudget _sshTunnelRecoveryBudget = new();
     private GlobalHotkeyService? _globalHotkey;
     private Mutex? _mutex;
+    // Do not release during managed shutdown: a failed service disposal may leave state
+    // writers running. Windows closes this handle only when the process terminates.
+    private IDisposable? _innoMigrationLease;
     private Microsoft.UI.Dispatching.DispatcherQueue? _dispatcherQueue;
     private AppState? _appState;
     internal AppState? AppState => _appState;
@@ -220,6 +223,13 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     private string? _lastManagerConnectedSideEffectsKey;
     private SettingsWriteOrigin? _trayPermissionWriteOrigin;
     private SettingsWriteOrigin? _appCapabilityPermissionWriteOrigin;
+    private SettingsWriteOrigin? _trayAutoStartWriteOrigin;
+
+    /// <summary>
+    /// Serializes auto-start mutations so startup reconciliation and a user toggle cannot
+    /// interleave their read-decide-write sequences against Windows and settings.
+    /// </summary>
+    private readonly SemaphoreSlim _autoStartMutationGate = new(1, 1);
 
     // FrozenDictionary for O(1) case-insensitive notification type → setting lookup — no per-call allocation.
     private static readonly System.Collections.Frozen.FrozenDictionary<string, Func<SettingsManager, bool>> s_notifTypeMap =
@@ -283,6 +293,9 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
 
     public App()
     {
+        // Validate before restart handling, logging, settings, or run-marker writes.
+        _ = GatewayFixtureIsolation.Get();
+
         WaitForRestartSourceIfRequested(Environment.GetCommandLineArgs());
         StartupInputConfigurator.Configure();
 
@@ -528,6 +541,12 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
             return; // Environment.Exit called inside; defensive return
         }
 
+        if (StoreMigrationStartupGuard.ShouldStopLaunch())
+        {
+            Exit();
+            return;
+        }
+
         // Check for protocol activation (MSIX packaged apps receive deep links this way)
         string? protocolUri = GetProtocolActivationUri();
 
@@ -564,6 +583,13 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
                 Logger.Warn("Post-setup restart acquired abandoned tray mutex.");
                 ownsMutex = true;
             }
+        }
+
+        // Keep Inno's AppMutex held while finish-migration guidance is visible.
+        if (ownsMutex && InnoMigrationStartupGuard.ShouldStopLaunch(out _innoMigrationLease))
+        {
+            Exit();
+            return;
         }
 
         _activationRouter = new ActivationRouter(AppIdentity.ProtocolScheme, DeepLinkPipeName);
@@ -636,6 +662,7 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
             AppUpdater,
             _appState,
             _settings,
+            () => _connectionManager?.OperatorClient,
             () => _windowManager?.DialogXamlRoot,
             refreshStatus: UpdateStatusDetailWindow,
             exit: Exit);
@@ -694,21 +721,10 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
         // explicitly via Application.Exit().
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
 
-        // Check for updates before launching. Skip in test instances — no UI dialogs,
-        // no network calls, no startup delay.
-        if (DataDirOverride is null &&
-            Environment.GetEnvironmentVariable("OPENCLAW_SKIP_UPDATE_CHECK") != "1")
-        {
-            var shouldLaunch = await _updateCoordinator.CheckForUpdatesAsync();
-            if (!shouldLaunch)
-            {
-                Exit();
-                return;
-            }
-        }
-
-        // Register toast activation handler
-        ToastNotificationManagerCompat.OnActivated += OnToastActivated;
+        // Touching the toolkit initializes installed COM/AUMID registration, even
+        // when notification display is disabled in this profile.
+        if (!GatewayFixtureIsolation.IsEnabled)
+            ToastNotificationManagerCompat.OnActivated += OnToastActivated;
 
         _sshTunnelService = new SshTunnelService(new AppLogger());
         _sshTunnelService.TunnelExited += OnSshTunnelExited;
@@ -853,6 +869,15 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
             Logger.Error($"Onboarding failed during launch (tray remains available): {ex}");
         }
 
+        // Packaged builds must reconcile auto-start with Windows after settings load.
+        // Nothing else does: SettingsChangeCoordinator.Apply only runs on a settings
+        // *change*, so a preserved AutoStart=true would be shown as enabled while the
+        // manifest's StartupTask sat disabled. Backgrounded so a slow StartupTask query
+        // cannot delay tray availability.
+        ObserveBackgroundFault(
+            ReconcileAutoStartOnStartupAsync(),
+            "[App] Failed to reconcile auto-start with Windows");
+
         // Ensure NodeService is constructed BEFORE InitializeGatewayClient triggers a
         // NodeConnector connect. The NodeConnector.ClientCreated event subscription
         // above relies on _nodeService being non-null to register capabilities on the
@@ -925,6 +950,19 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
         _managedLocalAutoRepairMonitor.Start();
 
         InitializeGatewayClient();
+
+        // Resolve the existing connection-manager-owned client before checking
+        // whether its authenticated Gateway channel suppresses an ordinary update.
+        if (DataDirOverride is null &&
+            Environment.GetEnvironmentVariable("OPENCLAW_SKIP_UPDATE_CHECK") != "1")
+        {
+            var shouldLaunch = await _updateCoordinator.CheckForUpdatesAsync();
+            if (!shouldLaunch)
+            {
+                Exit();
+                return;
+            }
+        }
 
         // Pre-warm chat window (WebView2 init takes 1-3s, do it now so left-click is instant)
         if (_settings != null &&
@@ -3916,6 +3954,7 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     void IAppCommands.ShowChat() => ShowChatWindow();
     void IAppCommands.CheckForUpdates() => _ = _updateCoordinator!.CheckForUpdatesUserInitiatedAsync();
     void IAppCommands.ShowOnboarding() => _ = ShowOnboardingAsync();
+    void IAppCommands.ShowLocalAiSetup() => _ = _windowManager?.ShowLocalAiSetupAsync();
     void IAppCommands.OpenLocalAiLogs() =>
         OpenFolder(new LocalAiPaths(AppIdentity.ResolveSetupLocalDataDirectory()).LogsDirectory, "Local AI logs");
     void IAppCommands.ShowGatewayWizard() => _ = ShowGatewayWizardAsync();
@@ -4001,9 +4040,11 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     private async Task ToggleAutoStartAsync()
     {
         if (_settings == null) return;
-        _settings.AutoStart = !_settings.AutoStart;
-        _settings.Save();
-        await AutoStartManager.SetAutoStartAsync(_settings.AutoStart);
+
+        var origin = SettingsStore is { } store
+            ? GetOrCreateSettingsWriteOrigin(ref _trayAutoStartWriteOrigin, store)
+            : null;
+        await ApplyAutoStartCore(origin, !_settings.AutoStart);
     }
 
     /// <summary>
@@ -4014,8 +4055,12 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     /// triggering view model ignores its own change event.
     /// </summary>
     public async Task<bool> ApplyAutoStart(SettingsWriteOrigin origin, bool autoStart)
+        => await ApplyAutoStartCore(origin, autoStart);
+
+    private async Task<bool> ApplyAutoStartCore(SettingsWriteOrigin? origin, bool autoStart)
     {
         if (_settings == null) return false;
+        await _autoStartMutationGate.WaitAsync();
         try
         {
             if (SettingsStore is { } store)
@@ -4035,7 +4080,76 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
         catch (Exception ex)
         {
             Logger.Error($"ApplyAutoStart failed: {ex.Message}");
+            var effectiveAutoStart = await AutoStartManager.ResolveAutoStartAfterFailedChangeAsync(autoStart, ex);
+            if (SettingsStore is { } store)
+            {
+                store.Update(origin, edit => edit.AutoStart = effectiveAutoStart);
+            }
+            else if (_settings != null)
+            {
+                _settings.AutoStart = effectiveAutoStart;
+                _settings.Save();
+            }
             return false;
+        }
+        finally
+        {
+            _autoStartMutationGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Aligns the stored auto-start preference with the state Windows actually reports,
+    /// so the Settings toggle never claims auto-start is on while nothing launches at logon.
+    /// </summary>
+    /// <remarks>
+    /// Runs under <see cref="_autoStartMutationGate"/> so the query-then-set sequence cannot
+    /// interleave with a user toggle: a toggle raised while this is in flight is applied after
+    /// it, and therefore wins. The preference is re-read before persisting as well, to cover
+    /// writes that reach settings without passing through the gate. The saved event is raised
+    /// after the gate is released, because subscribers apply auto-start themselves and must
+    /// not re-enter a non-reentrant gate.
+    /// </remarks>
+    private async Task ReconcileAutoStartOnStartupAsync()
+    {
+        if (_settings == null) return;
+        if (GatewayFixtureIsolation.IsEnabled)
+        {
+            Logger.Info("Gateway fixture mode: skipping Windows auto-start reconciliation.");
+            return;
+        }
+
+        var persisted = false;
+        await _autoStartMutationGate.WaitAsync();
+        try
+        {
+            var configured = _settings.AutoStart;
+            var effective = await AutoStartManager.ReconcileAutoStartAsync(configured);
+
+            if (!AutoStartReconciliation.ShouldPersistReconciledValue(configured, _settings.AutoStart, effective))
+                return;
+
+            Logger.Info($"Auto-start setting corrected from {configured} to {effective} to match Windows.");
+            if (SettingsStore is { } store)
+            {
+                store.Update(null, edit => edit.AutoStart = effective);
+            }
+            else
+            {
+                _settings.AutoStart = effective;
+                _settings.Save();
+            }
+
+            persisted = true;
+        }
+        finally
+        {
+            _autoStartMutationGate.Release();
+        }
+
+        if (persisted)
+        {
+            OnSettingsSaved(this, EventArgs.Empty);
         }
     }
 

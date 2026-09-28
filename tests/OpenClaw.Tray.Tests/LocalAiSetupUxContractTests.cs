@@ -5,6 +5,44 @@ namespace OpenClaw.Tray.Tests;
 public sealed class LocalAiSetupUxContractTests
 {
     [Fact]
+    public void LocalAiSidebar_UsesColorChipAsset()
+    {
+        string root = TestRepositoryPaths.GetRepositoryRoot();
+        string tray = Path.Combine(root, "src", "OpenClaw.Tray.WinUI");
+        string xaml = File.ReadAllText(Path.Combine(tray, "Windows", "HubWindow.xaml"));
+        string svg = File.ReadAllText(Path.Combine(tray, "Assets", "SidebarIcons", "LocalAi.svg"));
+
+        Assert.Contains("x:Key=\"LocalAi_Icon\" UriSource=\"ms-appx:///Assets/SidebarIcons/LocalAi.svg\"", xaml);
+        Assert.Contains(
+            "Tag=\"local-ai\" Content=\"Local AI\">\n" +
+            "                <NavigationViewItem.Icon><ImageIcon Source=\"{StaticResource LocalAi_Icon}\" AutomationProperties.AccessibilityView=\"Raw\"/>",
+            xaml.Replace("\r\n", "\n"));
+        Assert.Contains("viewBox=\"0 0 24 24\"", svg);
+        Assert.Contains("<rect x=\"5\" y=\"5\" width=\"14\" height=\"14\" rx=\"3.75\" fill=\"url(#body)\"/>", svg);
+        Assert.DoesNotContain("<circle", svg);
+    }
+
+    [Fact]
+    public void LocalAiSetupProgressAndCompletion_DoNotPromiseInferenceVerification()
+    {
+        string root = TestRepositoryPaths.GetRepositoryRoot();
+        string pages = Path.Combine(root, "src", "OpenClaw.SetupEngine.UI", "Pages");
+        string progress = File.ReadAllText(Path.Combine(pages, "ProgressPage.xaml.cs"));
+        string complete = File.ReadAllText(Path.Combine(pages, "CompletePage.xaml.cs"));
+        string completeXaml = File.ReadAllText(Path.Combine(pages, "CompletePage.xaml"));
+
+        Assert.Contains("Prepare Local AI router", progress);
+        Assert.DoesNotContain("capture-local-ai-gpu-baseline", progress);
+        Assert.DoesNotContain("verify-local-ai-inference", progress);
+        Assert.DoesNotContain("verify-local-ai-gpu-load", progress);
+        Assert.Contains("Local AI installed", complete);
+        Assert.Contains("Local AI installed", completeXaml);
+        Assert.Contains("The model loads on the first request.", complete);
+        Assert.DoesNotContain("Local AI verified", complete);
+        Assert.DoesNotContain("Local AI verified", completeXaml);
+    }
+
+    [Fact]
     public void WelcomePage_ShowsLocalAiCompatibilityDetails()
     {
         string root = TestRepositoryPaths.GetRepositoryRoot();
@@ -154,10 +192,10 @@ public sealed class LocalAiSetupUxContractTests
         Assert.DoesNotContain("config.LocalAi.WslMirroredNetworkingConsent = config.LocalAi.Enabled", source);
         Assert.DoesNotContain("config.LocalAi.WslMirroredNetworkingConsent = true", source);
         Assert.Contains(
-            "config.LocalAi.WslMirroredNetworkingConsent =\r\n            config.LocalAi.Enabled &&\r\n" +
-            "            _localAiNetworkingConsentRequired &&\r\n" +
+            "config.LocalAi.WslMirroredNetworkingConsent =\n            config.LocalAi.Enabled &&\n" +
+            "            _localAiNetworkingConsentRequired &&\n" +
             "            LocalAiNetworkingConsentCheckBox.IsChecked == true;",
-            source);
+            source.Replace("\r\n", "\n"));
         Assert.Contains("bytes / (1024d * 1024d * 1024d)", source);
         Assert.Contains("GiB", source);
         Assert.Contains("loads on first request", source);
@@ -236,10 +274,14 @@ public sealed class LocalAiSetupUxContractTests
             "LocalInferenceEligibilityResult deviceEligibility = LocalInferenceEligibility.Evaluate(_localAiHardware);",
             "if (!deviceEligibility.CanInstall || deviceEligibility.Plan is null || deviceEligibility.SelectedGpu is null)",
             "hardwareReason = DescribeLocalAiUnavailable(deviceEligibility);",
-            "!LocalInferenceEligibility.Evaluate(_localAiHardware, selectedModelId).CanInstall",
+            "LocalInferenceEligibilityResult selectedEligibility =",
+            "LocalInferenceEligibility.Evaluate(_localAiHardware, selectedModelId);",
+            "if (_localAiRecoveryModelPinned)",
+            "eligibility = selectedEligibility;",
+            "else if (!selectedEligibility.CanInstall)",
             "_config.LocalAi.SelectedModelId = null;",
             "_config.LocalAi.SelectedModelId ??= _localAiRecommendedModelId ?? deviceEligibility.Plan.Model.Id;",
-            "eligibility = LocalInferenceEligibility.Evaluate(",
+            "eligibility ??= LocalInferenceEligibility.Evaluate(",
             "_config.LocalAi.SelectedModelId);");
     }
 
@@ -531,11 +573,12 @@ public sealed class LocalAiSetupUxContractTests
 
     /// <summary>
     /// Setup step 3 must never dead-end: while Local AI availability is still pending
-    /// (Checking/ProbeUnknown), the toggle must stay interactive even though every other
-    /// Local AI control is disabled, so turning Local AI off is always an escape hatch. Continue
-    /// itself must never bypass eligibility or an as-yet-undetermined WSL networking-consent
-    /// requirement merely because availability hasn't resolved yet — that would let a fast user
-    /// leave step 3 before the consent checkbox is even known to be required.
+    /// (Checking/ProbeUnknown), the toggle must stay interactive outside recovery even though
+    /// every other Local AI control is disabled, so turning Local AI off is an escape hatch.
+    /// Recovery requires Local AI and keeps the toggle disabled. Continue itself must never bypass
+    /// eligibility or an as-yet-undetermined WSL networking-consent requirement merely because
+    /// availability hasn't resolved yet — that would let a fast user leave step 3 before the
+    /// consent checkbox is even known to be required.
     /// </summary>
     [Fact]
     public void CapabilitiesReview_PendingAvailabilityIsEscapedByToggleNotByBypassingContinue()
@@ -552,7 +595,7 @@ public sealed class LocalAiSetupUxContractTests
         AssertInOrder(
             restoreMethod,
             "LocalAiOptionContent.IsHitTestVisible = true;",
-            "LocalAiToggle.IsEnabled = true;");
+            "LocalAiToggle.IsEnabled = !_localAiRecoveryOnly;");
 
         string checkingMethod = ExtractMethod(source, "private void ShowLocalAiAvailabilityChecking");
         AssertInOrder(
@@ -570,10 +613,12 @@ public sealed class LocalAiSetupUxContractTests
         // on the toggle being off, or requires a fully resolved, eligible, consented state.
         string primaryButtonMethod = ExtractMethod(source, "private void UpdatePrimaryButtonState");
         Assert.DoesNotContain("_localAiAvailability", primaryButtonMethod);
-        Assert.Contains("LocalAiToggle.IsOn != true ||", primaryButtonMethod);
         Assert.Contains(
-            "(_localAiSelectionEligible &&\r\n             (!_localAiNetworkingConsentRequired || LocalAiNetworkingConsentCheckBox.IsChecked == true));",
+            "(!_localAiRecoveryOnly && LocalAiToggle.IsOn != true) ||",
             primaryButtonMethod);
+        Assert.Contains(
+            "(LocalAiToggle.IsOn == true &&\n             _localAiSelectionEligible &&\n             (!_localAiNetworkingConsentRequired || LocalAiNetworkingConsentCheckBox.IsChecked == true));",
+            primaryButtonMethod.Replace("\r\n", "\n"));
     }
 
     /// <summary>
