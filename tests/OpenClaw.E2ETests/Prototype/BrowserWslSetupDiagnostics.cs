@@ -30,7 +30,7 @@ internal static class BrowserWslSetupDiagnostics
         ("ECONNREFUSED", "connection_refused"),
         ("ETIMEDOUT", "connection_timeout")
     ];
-    private sealed record Command(string? Step, int Exit, bool? TimedOut, double? ElapsedMs, string[] Codes);
+    private sealed record Command(int StepSequence, int Exit, bool? TimedOut, double? ElapsedMs, string[] Codes);
 
     internal static BrowserWslSetupFailure Read(string file)
     {
@@ -60,7 +60,9 @@ internal static class BrowserWslSetupDiagnostics
         string? step = null, outcome = null, failedStep = null, failedRawStep = null;
         Command? lastCommand = null, failedCommand = null;
         var codes = new HashSet<string>(StringComparer.Ordinal);
-        int records = 0; bool partial = false;
+        int records = 0, stepSequence = 0;
+        int? failedSequence = null;
+        bool partial = false;
         var recent = new Queue<string>(MaxRecords);
         using (var reader = new StringReader(jsonl))
         {
@@ -82,13 +84,18 @@ internal static class BrowserWslSetupDiagnostics
                 var rawStep = String(data, "step_id");
                 if (rawStep is not null && (message?.StartsWith("step.started:", StringComparison.Ordinal) == true || message?.StartsWith("step.completed:", StringComparison.Ordinal) == true))
                 {
-                    step = Steps.Contains(rawStep) ? rawStep : "other";
+                    if (message.StartsWith("step.started:", StringComparison.Ordinal))
+                    {
+                        stepSequence++;
+                        lastCommand = null;
+                    }
+                    step = ClosedStep(rawStep, message);
                     var value = String(data, "outcome");
                     outcome = value is "Success" or "Failed" or "Skipped" or "Cancelled" ? value : value is null ? null : "other";
                     if (value == "Failed" && failedStep is null)
                     {
-                        failedStep = step; failedRawStep = rawStep;
-                        failedCommand = lastCommand?.Step == rawStep ? lastCommand : null;
+                        failedStep = step; failedRawStep = rawStep; failedSequence = stepSequence;
+                        failedCommand = lastCommand?.StepSequence == stepSequence ? lastCommand : null;
                         if (failedCommand is not null) codes.UnionWith(failedCommand.Codes);
                         codes.UnionWith(Classify(data));
                     }
@@ -98,16 +105,28 @@ internal static class BrowserWslSetupDiagnostics
                 {
                     bool? timedOut = data.TryGetProperty("timed_out", out var timed) && timed.ValueKind is JsonValueKind.True or JsonValueKind.False ? timed.GetBoolean() : null;
                     double? elapsed = data.TryGetProperty("elapsed_ms", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetDouble(out var number) && double.IsFinite(number) && number is >= 0 and <= 3600000 ? number : null;
-                    // Only closed step names are retained, including for unknown producer IDs.
-                    lastCommand = new(step, exitCode, timedOut, elapsed, exitCode == 0 ? [] : Classify(data));
+                    // Correlate by the step-start boundary because all sanitized IDs may be identical.
+                    lastCommand = new(stepSequence, exitCode, timedOut, elapsed, exitCode == 0 ? [] : Classify(data));
                 }
-                if (failedRawStep is not null && rawStep == failedRawStep && message?.StartsWith("step.exception:", StringComparison.Ordinal) == true) codes.UnionWith(Classify(data));
+                if (failedRawStep is not null && failedSequence == stepSequence && rawStep == failedRawStep && message?.StartsWith("step.exception:", StringComparison.Ordinal) == true) codes.UnionWith(Classify(data));
             }
             catch (JsonException) { partial = true; }
         }
         return new(partial ? "partial" : records == 0 ? "empty" : "observed", truncated, records,
             failedStep, step, outcome, failedCommand?.Exit, failedCommand?.TimedOut,
             failedCommand?.ElapsedMs, codes.Order(StringComparer.Ordinal).ToArray());
+    }
+
+    private static string ClosedStep(string rawStep, string message)
+    {
+        if (Steps.Contains(rawStep)) return rawStep;
+        // SetupLogger intentionally redacts *_id metadata. Its completion message has
+        // the public step ID. Match a closed producer prefix, never export arbitrary text.
+        if (rawStep == "[REDACTED]")
+            foreach (var known in Steps)
+                if (message.StartsWith($"step.completed: {known} → ", StringComparison.Ordinal))
+                    return known;
+        return "other";
     }
 
     private static string? String(JsonElement value, string name) =>
