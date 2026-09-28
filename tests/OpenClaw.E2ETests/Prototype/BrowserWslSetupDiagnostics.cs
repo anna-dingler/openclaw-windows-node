@@ -61,10 +61,18 @@ internal static class BrowserWslSetupDiagnostics
         Command? lastCommand = null, failedCommand = null;
         var codes = new HashSet<string>(StringComparer.Ordinal);
         int records = 0; bool partial = false;
-        using var reader = new StringReader(jsonl);
-        while (reader.ReadLine() is { } line)
+        var recent = new Queue<string>(MaxRecords);
+        using (var reader = new StringReader(jsonl))
         {
-            if (++records > MaxRecords) { records = MaxRecords; truncated = true; partial = true; break; }
+            while (reader.ReadLine() is { } line)
+            {
+                if (recent.Count == MaxRecords) { recent.Dequeue(); truncated = true; partial = true; }
+                recent.Enqueue(line);
+            }
+        }
+        foreach (var line in recent)
+        {
+            records++;
             try
             {
                 using var document = JsonDocument.Parse(line, new JsonDocumentOptions { MaxDepth = 32 });

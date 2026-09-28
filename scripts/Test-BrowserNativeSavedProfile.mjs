@@ -76,6 +76,8 @@ export async function savedProfileAcceptance(h) {
     const narrowed=await manage({...active.request,action:'install',expectedOrigins:[origin]});
     receipt.savedProfileHistory={narrowed:narrowed.ok===true,canonicalRestored:false};
     assert.equal(narrowed.ok,true);assert.notEqual(narrowed.installation.generation,retainedWorkGeneration);
+    // Prepare considers only registered manifests, not retained directories.
+    // Successful narrow publication leaves only that generation in the reuse inventory.
     stage='history_restore';
     const restored=await cli(['install','--browser-profile','work','--no-store','--wait-ms','1000']);
     assert.equal(savedProfileCliObservation(restored).ownedWorkProfile,true);

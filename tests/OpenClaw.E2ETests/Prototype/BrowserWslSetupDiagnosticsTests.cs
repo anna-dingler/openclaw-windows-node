@@ -102,6 +102,20 @@ public sealed class BrowserWslSetupDiagnosticsTests
     }
 
     [Fact]
+    public void RecordLimit_RetainsTheLatestFailure()
+    {
+        var log = string.Concat(Enumerable.Repeat("{}\n", 1025)) +
+            Entry("step.started: wizard", new { step_id = "run-wizard" }) +
+            Entry("cmd.done: failed", new { exit_code = 1 }) +
+            Entry("step.completed: wizard", new { step_id = "run-wizard", outcome = "Failed" });
+        var value = BrowserWslSetupDiagnostics.Project(log);
+        Assert.True(value.Truncated);
+        Assert.Equal(1024, value.Records);
+        Assert.Equal("run-wizard", value.FailedStep);
+        Assert.Equal(1, value.CommandExit);
+    }
+
+    [Fact]
     public void TailRead_SkipsThePartialPrefixAndRetainsClosedFailureFacts()
     {
         var file = Path.GetTempFileName();
