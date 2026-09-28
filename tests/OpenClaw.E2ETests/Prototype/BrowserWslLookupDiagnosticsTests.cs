@@ -16,6 +16,20 @@ public sealed class BrowserWslLookupDiagnosticsTests
         Assert.True(entered);
     }
 
+    [Theory]
+    [InlineData("LOOKUP_READY\n", "not_entered")]
+    [InlineData("LOOKUP_READY\nLOOKUP_QUERY", "not_entered")]
+    [InlineData("LOOKUP_READY\nLOOKUP_QUERY\n", "query")]
+    [InlineData("LOOKUP_READY\r\nLOOKUP_QUERY\r\nLOOKUP_COMPLETE\r\n1234\r\n", "completed")]
+    [InlineData("untrusted\nLOOKUP_QUERY\nLOOKUP_COMPLETE\n", "not_entered")]
+    public async Task QueryStage_RequiresExactOrderedCompleteMarkers(string output,string expected)
+    {
+        using var reader=new StreamReader(new MemoryStream(Encoding.UTF8.GetBytes(output)));
+        string stage="not_entered";
+        Assert.Equal(output,await BrowserWslProductionOwnerTests.ReadLookupOutput(reader,()=>{},value=>stage=value));
+        Assert.Equal(expected,stage);
+    }
+
     [Fact]
     public async Task AbsentMarker_DoesNotClaimScriptEntry()
     {

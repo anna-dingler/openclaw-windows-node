@@ -35,15 +35,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: openclaw/openclaw
-          ref: 57201e3e26968ff686bae61d5de8e4e54308a6b6
+          ref: bb2d479926adb23fb30737e2fd3e5af63969dc84
           path: consumer
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
+          node-version: '24.19.0'
       - uses: pnpm/action-setup@v4
         with:
-          version: '12.4.0'
+          # The pinned consumer packageManager is the only version authority.
           run_install: false
       - uses: actions/setup-dotnet@v5
         with:
@@ -79,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if ((git rev-parse HEAD).Trim() -cne '57201e3e26968ff686bae61d5de8e4e54308a6b6') { throw 'Consumer revision mismatch.' }
+          if ((git rev-parse HEAD).Trim() -cne 'bb2d479926adb23fb30737e2fd3e5af63969dc84') { throw 'Consumer revision mismatch.' }
           pnpm install --frozen-lockfile --store-dir "$env:COMPOSED_PRIVATE_ROOT/store" --package-import-method=copy
           if ($LASTEXITCODE -ne 0) { throw 'Pinned consumer dependency install failed.' }
           pnpm build:docker

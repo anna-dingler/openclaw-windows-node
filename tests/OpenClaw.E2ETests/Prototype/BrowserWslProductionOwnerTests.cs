@@ -167,7 +167,7 @@ public sealed class BrowserWslProductionOwnerTests
         while((count=await reader.ReadAsync(buffer))!=0)if((total+=count)>16384)throw new InvalidDataException("Bounded proof drain");
     }
     private sealed record ClientLookupObservation(string Stage,long ElapsedMilliseconds,bool ScriptEntered,
-        bool ProcessExited,bool OutputCompleted,bool ErrorCompleted,int ExitCode,int Matches,bool CleanupFailed=false);
+        bool ProcessExited,bool OutputCompleted,bool ErrorCompleted,int ExitCode,int Matches,bool CleanupFailed=false,string QueryStage="not_entered");
     private static async Task<Process> FindProductionClientAsync(string distro,Action<ClientLookupObservation> report)
     {
         var ps=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"WindowsPowerShell","v1.0","powershell.exe");
@@ -175,22 +175,24 @@ public sealed class BrowserWslProductionOwnerTests
         var image=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),"wsl.exe");
         var arguments="--distribution "+distro+" --exec /bin/bash --noprofile --norc -s";
         var expected=Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new {parent=Environment.ProcessId,quoted="\""+image+"\" "+arguments,unquoted=image+" "+arguments}));
-        var script="[Console]::Out.WriteLine('LOOKUP_READY');[Console]::Out.Flush();$e=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+expected+"'))|ConvertFrom-Json;Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$e.parent+' AND Name=\"wsl.exe\"') | Where-Object {$_.CommandLine-ceq$e.quoted-or$_.CommandLine-ceq$e.unquoted} | ForEach-Object {$_.ProcessId}";
+        var script="[Console]::Out.WriteLine('LOOKUP_READY');[Console]::Out.Flush();$e=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('"+expected+"'))|ConvertFrom-Json;[Console]::Out.WriteLine('LOOKUP_QUERY');[Console]::Out.Flush();$c=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$e.parent+' AND Name=\"wsl.exe\"') | Where-Object {$_.CommandLine-ceq$e.quoted-or$_.CommandLine-ceq$e.unquoted} | ForEach-Object {$_.ProcessId});[Console]::Out.WriteLine('LOOKUP_COMPLETE');[Console]::Out.Flush();$c";
         var start=new ProcessStartInfo(ps){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
         foreach(var a in new[]{"-NoLogo","-NoProfile","-NonInteractive","-EncodedCommand",Convert.ToBase64String(Encoding.Unicode.GetBytes(script))})start.ArgumentList.Add(a);
         using var process=Process.Start(start)!;
         var clock=Stopwatch.StartNew();bool scriptEntered=false,primaryFailed=false;
-        var output=ReadLookupOutput(process.StandardOutput,()=>Volatile.Write(ref scriptEntered,true));var error=DrainBoundedError(process.StandardError);
+        string queryStage="not_entered";
+        var output=ReadLookupOutput(process.StandardOutput,()=>Volatile.Write(ref scriptEntered,true),value=>Volatile.Write(ref queryStage,value));var error=DrainBoundedError(process.StandardError);
         string stage="query_and_drains";int matchesCount=-1;ClientLookupObservation? failure=null;
         ClientLookupObservation Snapshot()=>new(stage,clock.ElapsedMilliseconds,Volatile.Read(ref scriptEntered),
-            process.HasExited,output.IsCompleted,error.IsCompleted,process.HasExited?process.ExitCode:-1,matchesCount);
+            process.HasExited,output.IsCompleted,error.IsCompleted,process.HasExited?process.ExitCode:-1,matchesCount,QueryStage:Volatile.Read(ref queryStage));
         try
         {
             await Task.WhenAll(process.WaitForExitAsync(),output,error).WaitAsync(TimeSpan.FromSeconds(5));
             stage="parse_exact_matches";
             var lines=(await output).Split(['\r','\n'],StringSplitOptions.RemoveEmptyEntries);
             Assert.NotEmpty(lines);Assert.Equal("LOOKUP_READY",lines[0]);
-            var matches=lines.Skip(1).Select(int.Parse).ToArray();matchesCount=matches.Length;
+            Assert.True(lines.Length>=3);Assert.Equal("LOOKUP_QUERY",lines[1]);Assert.Equal("LOOKUP_COMPLETE",lines[2]);
+            var matches=lines.Skip(3).Select(int.Parse).ToArray();matchesCount=matches.Length;
             report(Snapshot());Assert.Equal(0,process.ExitCode);Assert.Single(matches);
             stage="bind_exact_image";
             var owned=Process.GetProcessById(matches[0]);_=owned.Handle;
@@ -223,7 +225,7 @@ public sealed class BrowserWslProductionOwnerTests
         // The primary query path already records/rethrows protocol and bound failures.
         try{await drain.ConfigureAwait(false);}catch{_=drain.Exception;}
     }
-    internal static async Task<string> ReadLookupOutput(StreamReader reader,Action entered)
+    internal static async Task<string> ReadLookupOutput(StreamReader reader,Action entered,Action<string>? stage=null)
     {
         var result=new StringBuilder();var buffer=new char[128];int count;
         while((count=await reader.ReadAsync(buffer))!=0)
@@ -232,6 +234,9 @@ public sealed class BrowserWslProductionOwnerTests
             result.Append(buffer,0,count);
             var text=result.ToString();
             if(text.StartsWith("LOOKUP_READY\r\n",StringComparison.Ordinal)||text.StartsWith("LOOKUP_READY\n",StringComparison.Ordinal))entered();
+            var lines=text.Split(['\r','\n'],StringSplitOptions.RemoveEmptyEntries);
+            if(lines.Length>=3&&lines[0]=="LOOKUP_READY"&&lines[1]=="LOOKUP_QUERY"&&lines[2]=="LOOKUP_COMPLETE"&&(text.EndsWith('\n')||lines.Length>3))stage?.Invoke("completed");
+            else if(lines.Length>=2&&lines[0]=="LOOKUP_READY"&&lines[1]=="LOOKUP_QUERY"&&(text.EndsWith('\n')||lines.Length>2))stage?.Invoke("query");
         }
         return result.ToString();
     }

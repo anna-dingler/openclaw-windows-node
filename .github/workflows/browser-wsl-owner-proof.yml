@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: openclaw/openclaw
-          ref: 63f5d867fb67242ea6322f866b0e4f732d4e801c
+          ref: bb2d479926adb23fb30737e2fd3e5af63969dc84
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 63f5d867fb67242ea6322f866b0e4f732d4e801c
+          test "$(git rev-parse HEAD)" = bb2d479926adb23fb30737e2fd3e5af63969dc84
           pnpm install --frozen-lockfile
           node scripts/package-openclaw-for-docker.mjs --allow-unreleased-changelog --output-dir "$RUNNER_TEMP/canonical-consumer" --output-name openclaw-current.tgz
           git diff --exit-code
@@ -53,7 +53,7 @@ jobs:
           const dir=path.join(process.env.RUNNER_TEMP,'canonical-consumer');
           const version=require('./package.json').version;
           const sha256=crypto.createHash('sha256').update(fs.readFileSync(path.join(dir,'openclaw-current.tgz'))).digest('hex');
-          fs.writeFileSync(path.join(dir,'package-candidate.json'),JSON.stringify({sourceSha:'63f5d867fb67242ea6322f866b0e4f732d4e801c',version,sha256}));
+          fs.writeFileSync(path.join(dir,'package-candidate.json'),JSON.stringify({sourceSha:'bb2d479926adb23fb30737e2fd3e5af63969dc84',version,sha256}));
           fs.appendFileSync(process.env.GITHUB_OUTPUT,'version='+version+'\nsha256='+sha256+'\n');
           JS
       - uses: actions/upload-artifact@v7
@@ -69,7 +69,7 @@ jobs:
       OPENCLAW_REPO_ROOT: ${{ github.workspace }}
       OPENCLAW_RUN_E2E: '1'
       OPENCLAW_BROWSER_WSL_OWNER_PROOF: '1'
-      OPENCLAW_WSL_PROTOTYPE_CONSUMER_SHA: 63f5d867fb67242ea6322f866b0e4f732d4e801c
+      OPENCLAW_WSL_PROTOTYPE_CONSUMER_SHA: bb2d479926adb23fb30737e2fd3e5af63969dc84
       OPENCLAW_E2E_GATEWAY_VERSION: ${{ needs.canonical-consumer.outputs.version }}
     steps:
       - uses: actions/checkout@v7

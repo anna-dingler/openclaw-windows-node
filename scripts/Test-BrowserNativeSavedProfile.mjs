@@ -9,6 +9,19 @@ export function savedProfileFailure(error) {
   return {kind:error?.code==='ERR_ASSERTION'?'assertion_failed':'execution_failed',
     ...(location?{line:Number(location[1]),column:Number(location[2])}:{})};
 }
+// Closed-schema diagnostics distinguish a malformed CLI projection from registration refusal.
+export function savedProfileCliObservation(result) {
+  const body=result.body;
+  return {exitCode:Number.isInteger(result.code)?result.code:null,
+    jsonObject:body!==null&&typeof body==='object'&&!Array.isArray(body),
+    registrationsPresent:Array.isArray(body?.registrations),
+    registrationCount:Array.isArray(body?.registrations)?body.registrations.length:0,
+    ownedWorkProfile:Array.isArray(body?.registrations)&&body.registrations.some(r=>r?.state==='owned'&&r.browserProfile==='work'),
+    setupProjection:body?.target?.kind==='local-host',
+    errorProjection:body!==null&&typeof body==='object'&&Object.hasOwn(body,'error'),
+    installedCopyProjection:body!==null&&typeof body==='object'&&Object.hasOwn(body,'installedCopy'),
+    manualSetupRequired:body?.manualSetupRequired===true};
+}
 export async function savedProfileAcceptance(h) {
   const {fixture,context,executable,baseEnv,exchange,manage,powershell,frame,response,origin,nonce,check,receipt}=h;
   assert.equal(process.platform,'win32');assert.equal(process.env.RUNNER_ENVIRONMENT,'github-hosted');
@@ -43,7 +56,8 @@ export async function savedProfileAcceptance(h) {
     // The seed uses the canonical CLI, so normal origin/runtime selection is preserved.
     installed=true;
     const seed=await cli(['install','--browser-profile','work','--no-store','--wait-ms','0']);
-    assert.ok(seed.body?.registrations.some(r=>r.state==='owned'&&r.browserProfile==='work'));
+    receipt.savedProfileSeed=savedProfileCliObservation(seed);
+    assert.equal(receipt.savedProfileSeed.ownedWorkProfile,true);
     let active=await descriptor();assert.equal(active.inspected.store,'missing');
     stage='initial_pairing';
     const initialPair=await bootstrap(active);assert.equal(initialPair.ok,true);

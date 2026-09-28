@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { savedProfileFailure } from './Test-BrowserNativeSavedProfile.mjs';
+import { savedProfileFailure, savedProfileCliObservation } from './Test-BrowserNativeSavedProfile.mjs';
 
+test('CLI projection diagnostics reject missing registrations without masking the boundary',()=>{
+  for(const body of [undefined,null,{},[],{error:'private-value'},{target:{kind:'local-host'}}]) {
+    const observed=savedProfileCliObservation({code:1,body});
+    assert.equal(observed.ownedWorkProfile,false);assert.equal(observed.registrationsPresent,false);
+    assert.ok(!JSON.stringify(observed).includes('private-value'));
+  }
+});
+test('CLI observation retains owned work selection and never raw registration fields',()=>{
+  const observed=savedProfileCliObservation({code:1,body:{registrations:[{state:'owned',browserProfile:'work',path:'private-path'}],manualSetupRequired:true}});
+  assert.equal(observed.ownedWorkProfile,true);assert.equal(observed.registrationCount,1);
+  assert.equal(observed.manualSetupRequired,true);assert.ok(!JSON.stringify(observed).includes('private-path'));
+});
 test('saved-profile diagnostics retain only assertion kind and fixture coordinates',()=>{
   const error=new assert.AssertionError({actual:'private-pairing',expected:'private-config',message:'private-message'});
   error.stack='AssertionError: private-message\n at savedProfileAcceptance (file:///private/root/Test-BrowserNativeSavedProfile.mjs:51:12)';

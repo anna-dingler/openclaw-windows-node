@@ -9,7 +9,7 @@ import { recordCompletion } from './BrowserNativeProofTiming.mjs';
 import { savedProfileAcceptance } from './Test-BrowserNativeSavedProfile.mjs';
 
 const producerSha = process.env.GITHUB_SHA;
-const consumerSha = '57201e3e26968ff686bae61d5de8e4e54308a6b6';
+const consumerSha = 'bb2d479926adb23fb30737e2fd3e5af63969dc84';
 const origin = 'chrome-extension://kcdjddhmeafeomebliikmbpblkmkfoig/';
 const nonce = 'AAAAAAAAAAAAAAAAAAAAAA';
 const fixtureConfig = { gateway: { mode: 'local', port: 18789 }, browser: { enabled: true, profiles: { chrome: { driver: 'extension' } } } };
