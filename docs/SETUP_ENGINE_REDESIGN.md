@@ -286,13 +286,19 @@ port-in-use error and include owning process names when available. Missing
 listener ownership or a failed listener inspection does not bypass the check.
 
 Setup operator and node sockets share the gateway record's full device identity.
-Before opening each socket, setup snapshots the pending request IDs. If the
-socket omits a pairing request ID, setup selects exactly one newly appearing
-request matching that full identity, not a stale same-identity request, the
+Before the first operator or node pairing attempt, setup snapshots the pending
+request IDs and retains that baseline across step retries. A gateway may refresh
+the same request ID when the socket reconnects, so a fresh baseline on retry
+would incorrectly classify setup's request as pre-existing. Finalization and
+wizard sockets still take their own pre-connect snapshots. If a socket omits a
+pairing request ID, setup selects exactly one request absent from its baseline
+and matching the full identity, not a request already pending before setup, the
 shortened display ID, or the only request in the queue. Missing identity, a
-missing baseline, no new match, or multiple new matches fail closed. Later
-cleanup excludes requests that predate the setup socket. A socket-provided
-request ID still uses the exact device-approval path.
+failed baseline on that attempt, no new match, or multiple new matches fail
+closed. If the first baseline capture fails, retries take a new snapshot that
+excludes any requests already pending, including requests from earlier setup
+attempts. Later cleanup excludes requests that predate the retained successful
+baseline. A socket-provided request ID still uses the exact device-approval path.
 
 ### Local AI GPU admission
 

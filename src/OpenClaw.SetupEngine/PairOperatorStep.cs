@@ -85,11 +85,10 @@ public sealed class PairOperatorStep : SetupStep
         // Connect operator WebSocket — handle pairing-required flow
         var wsLogger = new SetupOpenClawLogger(ctx.Logger);
         OpenClawGatewayClient? client = null;
-        var requestBaseline = await ApprovalRequestHelper.CapturePendingRequestBaselineAsync(
+        var requestBaseline = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(
             ctx,
             ApprovalRequestKind.Device,
             ct);
-        ctx.SetupDeviceApprovalBaseline = requestBaseline;
         ctx.CurrentDeviceApprovalBaseline = requestBaseline;
 
         try

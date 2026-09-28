@@ -13,6 +13,32 @@ internal static partial class ApprovalRequestHelper
 {
     internal const string RequestIdEnvironmentVariable = "OPENCLAW_APPROVAL_REQUEST_ID";
 
+    internal static async Task<PendingRequestBaseline> CaptureSetupBaselineOnceAsync(
+        SetupContext ctx,
+        ApprovalRequestKind kind,
+        CancellationToken ct)
+    {
+        var baseline = kind switch
+        {
+            ApprovalRequestKind.Device => ctx.SetupDeviceApprovalBaseline,
+            ApprovalRequestKind.Node => ctx.SetupNodeApprovalBaseline,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+        };
+        if (baseline is not null)
+            return baseline;
+
+        baseline = await CapturePendingRequestBaselineAsync(ctx, kind, ct);
+        if (baseline.Success || baseline.PluginNotFound)
+        {
+            if (kind == ApprovalRequestKind.Device)
+                ctx.SetupDeviceApprovalBaseline = baseline;
+            else
+                ctx.SetupNodeApprovalBaseline = baseline;
+        }
+
+        return baseline;
+    }
+
     internal static async Task<PendingRequestBaseline> CapturePendingRequestBaselineAsync(
         SetupContext ctx,
         ApprovalRequestKind kind,

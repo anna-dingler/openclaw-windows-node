@@ -5889,6 +5889,140 @@ public class SetupStepsTests : IDisposable
         Assert.Contains("exit 1", baseline.Error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CaptureSetupBaselineOnce_RetryApprovesRefreshedRequestButNotPreexistingRequest(
+        bool node)
+    {
+        var kind = node ? ApprovalRequestKind.Node : ApprovalRequestKind.Device;
+        var noun = kind == ApprovalRequestKind.Device ? "devices" : "nodes";
+        var identityField = kind == ApprovalRequestKind.Device ? "deviceId" : "nodeId";
+        var role = kind == ApprovalRequestKind.Device ? "operator" : "node";
+        var listCalls = 0;
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) =>
+            {
+                if (command.Contains($"{noun} list --json", StringComparison.Ordinal))
+                {
+                    return ++listCalls switch
+                    {
+                        1 => Ok("""{"pending":[{"requestId":"preexisting-request"}]}"""),
+                        2 => Fail("transient list failure"),
+                        3 => Ok($$"""
+                            {"pending":[
+                              {"requestId":"preexisting-request","{{identityField}}":"{{PairingSocketDeviceId}}","role":"{{role}}"},
+                              {"requestId":"refreshed-request","{{identityField}}":"{{PairingSocketDeviceId}}","role":"{{role}}"}
+                            ]}
+                            """),
+                        _ => Fail("unexpected list")
+                    };
+                }
+
+                return command.Contains($"{noun} approve ", StringComparison.Ordinal)
+                    ? Ok("{}")
+                    : Fail($"unexpected wsl command: {command}");
+            });
+        var ctx = CreateNodePairingContext(commands);
+        var initial = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(ctx, kind, CancellationToken.None);
+        if (kind == ApprovalRequestKind.Device)
+            ctx.CurrentDeviceApprovalBaseline = initial;
+        else
+            ctx.CurrentNodeApprovalBaseline = initial;
+
+        var firstApproval = kind == ApprovalRequestKind.Device
+            ? await PairOperatorStep.AutoApprovePairing(ctx, requestId: null, CancellationToken.None)
+            : await PairNodeStep.AutoApproveNodePairing(ctx, requestId: null, CancellationToken.None);
+        Assert.False(firstApproval.IsSuccess);
+
+        var retry = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(ctx, kind, CancellationToken.None);
+        Assert.Same(initial, retry);
+        if (kind == ApprovalRequestKind.Device)
+            ctx.CurrentDeviceApprovalBaseline = retry;
+        else
+            ctx.CurrentNodeApprovalBaseline = retry;
+        var retryApproval = kind == ApprovalRequestKind.Device
+            ? await PairOperatorStep.AutoApprovePairing(ctx, requestId: null, CancellationToken.None)
+            : await PairNodeStep.AutoApproveNodePairing(ctx, requestId: null, CancellationToken.None);
+
+        Assert.True(retryApproval.IsSuccess, retryApproval.Message);
+        Assert.Equal(3, listCalls);
+        AssertApprovedRequest(commands, $"{noun} approve", "refreshed-request");
+        Assert.DoesNotContain(
+            commands.WslEnvironments,
+            env => env is not null &&
+                env.TryGetValue(ApprovalRequestHelper.RequestIdEnvironmentVariable, out var requestId) &&
+                requestId == "preexisting-request");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CaptureSetupBaselineOnce_FailedFirstCaptureRecapturesSafelyOnRetry(
+        bool node, bool firstAttemptMintedRequest)
+    {
+        var kind = node ? ApprovalRequestKind.Node : ApprovalRequestKind.Device;
+        var noun = node ? "nodes" : "devices";
+        var identityField = node ? "nodeId" : "deviceId";
+        var role = node ? "node" : "operator";
+        var baselineAtRetry = firstAttemptMintedRequest
+            ? """{"pending":[{"requestId":"first-attempt-request"}]}"""
+            : """{"pending":[]}""";
+        var pendingAfterConnect = firstAttemptMintedRequest
+            ? $$"""{"pending":[{"requestId":"first-attempt-request","{{identityField}}":"{{PairingSocketDeviceId}}","role":"{{role}}"}]}"""
+            : $$"""{"pending":[{"requestId":"retry-request","{{identityField}}":"{{PairingSocketDeviceId}}","role":"{{role}}"}]}""";
+        var listCalls = 0;
+        var commands = new FakeCommandRunner(
+            _ => Ok(),
+            (_, command, _) =>
+            {
+                if (command.Contains($"{noun} list --json", StringComparison.Ordinal))
+                {
+                    return ++listCalls switch
+                    {
+                        1 => Fail("initial baseline unavailable"),
+                        2 => Ok(baselineAtRetry),
+                        3 => Ok(pendingAfterConnect),
+                        _ => Fail("unexpected list")
+                    };
+                }
+
+                return command.Contains($"{noun} approve ", StringComparison.Ordinal)
+                    ? Ok("{}")
+                    : Fail($"unexpected wsl command: {command}");
+            });
+        var ctx = CreateNodePairingContext(commands);
+
+        var initial = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(ctx, kind, CancellationToken.None);
+        var retry = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(ctx, kind, CancellationToken.None);
+        if (kind == ApprovalRequestKind.Device)
+            ctx.CurrentDeviceApprovalBaseline = retry;
+        else
+            ctx.CurrentNodeApprovalBaseline = retry;
+        var retryApproval = kind == ApprovalRequestKind.Device
+            ? await PairOperatorStep.AutoApprovePairing(ctx, requestId: null, CancellationToken.None)
+            : await PairNodeStep.AutoApproveNodePairing(ctx, requestId: null, CancellationToken.None);
+
+        Assert.False(initial.Success);
+        Assert.True(retry.Success, retry.Error);
+        Assert.NotSame(initial, retry);
+        Assert.Equal(3, listCalls);
+        if (firstAttemptMintedRequest)
+        {
+            Assert.Contains("first-attempt-request", retry.RequestIds);
+            Assert.False(retryApproval.IsSuccess);
+            Assert.DoesNotContain(commands.WslCalls, call => call.Command.Contains(" approve ", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.True(retryApproval.IsSuccess, retryApproval.Message);
+            AssertApprovedRequest(commands, $"{noun} approve", "retry-request");
+        }
+    }
+
     [Fact]
     public async Task AutoApproveNodePairing_ReturnsTerminalWhenApproveReportsDevicePairPluginNotFound()
     {

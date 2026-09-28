@@ -48,11 +48,10 @@ public sealed class PairNodeStep : SetupStep
 
         var wsLogger = new SetupOpenClawLogger(ctx.Logger);
         WindowsNodeClient? client = null;
-        var requestBaseline = await ApprovalRequestHelper.CapturePendingRequestBaselineAsync(
+        var requestBaseline = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(
             ctx,
             ApprovalRequestKind.Node,
             ct);
-        ctx.SetupNodeApprovalBaseline = requestBaseline;
         ctx.CurrentNodeApprovalBaseline = requestBaseline;
 
         try
