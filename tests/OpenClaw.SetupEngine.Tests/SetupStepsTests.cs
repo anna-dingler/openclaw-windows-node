@@ -5395,22 +5395,22 @@ public class SetupStepsTests : IDisposable
     [Fact]
     public async Task WslPathPrefixScripts_UseStdinSoWslExeDoesNotExpandPath()
     {
-        var latestApprovals = 0;
+        var deviceLists = 0;
+        var nodeLists = 0;
         var commands = new FakeCommandRunner(
             _ => Ok(),
             (_, command, _) =>
             {
                 if (command.Contains("openclaw qr --json", StringComparison.Ordinal))
                     return Ok("""{"bootstrapToken":"boot-token"}""");
-                if (command.Contains("devices approve --latest", StringComparison.Ordinal))
-                {
-                    latestApprovals++;
-                    return latestApprovals == 1
-                        ? Ok("""{"selected":{"requestId":"device-req-1"}}""")
-                        : Ok("No pending device approvals");
-                }
+                if (command.Contains("devices list --json", StringComparison.Ordinal))
+                    return Ok(++deviceLists == 2
+                        ? $$"""{"pending":[{"requestId":"device-req-1","deviceId":"{{PairingSocketDeviceId}}","role":"operator"}]}"""
+                        : """{"pending":[]}""");
                 if (command.Contains("nodes list --json", StringComparison.Ordinal))
-                    return Ok("""{"pending":[{"requestId":"node-req-1"}]}""");
+                    return Ok(++nodeLists == 2
+                        ? $$"""{"pending":[{"requestId":"node-req-1","nodeId":"{{PairingSocketDeviceId}}","role":"node"}]}"""
+                        : """{"pending":[]}""");
                 if (command.Contains("GATEWAY_CONFIGURED", StringComparison.Ordinal))
                     return Ok("GATEWAY_CONFIGURED");
                 if (command.Contains("curl -s", StringComparison.Ordinal))
@@ -5421,11 +5421,16 @@ public class SetupStepsTests : IDisposable
         ctx.DistroName = "test-distro";
         ctx.SharedGatewayToken = "shared-token";
         ctx.Config.Gateway.ReloadMode = "hybrid";
+        ctx.OperatorDeviceId = PairingSocketDeviceId;
+        ctx.CurrentDeviceApprovalBaseline = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(
+            ctx, ApprovalRequestKind.Device, CancellationToken.None);
+        ctx.CurrentNodeApprovalBaseline = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(
+            ctx, ApprovalRequestKind.Node, CancellationToken.None);
 
         Assert.True((await new InstallGatewayServiceStep().ExecuteAsync(ctx, CancellationToken.None)).IsSuccess);
         await new InstallGatewayServiceStep().RollbackAsync(ctx, CancellationToken.None);
         Assert.True((await new MintBootstrapTokenStep().ExecuteAsync(ctx, CancellationToken.None)).IsSuccess, "mint");
-        Assert.True((await PairOperatorStep.AutoApprovePairing(ctx, CancellationToken.None)).IsSuccess, "operator approve");
+        Assert.True((await PairOperatorStep.AutoApprovePairing(ctx, requestId: null, CancellationToken.None)).IsSuccess, "operator approve");
         Assert.True((await PairNodeStep.AutoApproveNodePairing(ctx, requestId: null, CancellationToken.None)).IsSuccess, "node approve");
         Assert.True((await StartGatewayStep.RestartAndWaitForHealthAsync(ctx, CancellationToken.None)).IsSuccess, "restart");
         Assert.True((await VerifyEndToEndStep.DrainPendingDeviceApprovalsAsync(ctx, CancellationToken.None)).IsSuccess, "drain");

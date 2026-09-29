@@ -199,7 +199,7 @@ public sealed class VerifyEndToEndStep : SetupStep
             var nodeList = await ctx.Commands.RunInWslAsync(
                 distro,
                 $"""{pathPrefix} && openclaw nodes list --json""",
-                TimeSpan.FromSeconds(15), env, ct);
+                TimeSpan.FromSeconds(15), env, ct, inputViaStdin: true);
 
             if (nodeList.ExitCode != 0)
                 return StepResult.Fail($"Could not list pending node approvals (exit {nodeList.ExitCode}): {nodeList.Stdout.Trim()} {nodeList.Stderr.Trim()}".Trim());
@@ -225,7 +225,7 @@ public sealed class VerifyEndToEndStep : SetupStep
             var approve = await ctx.Commands.RunInWslAsync(
                 distro,
                 $"""{pathPrefix} && {ApprovalRequestHelper.ApprovalCommand(ApprovalRequestKind.Node)}""",
-                TimeSpan.FromSeconds(15), approvalEnv, ct);
+                TimeSpan.FromSeconds(15), approvalEnv, ct, inputViaStdin: true);
 
             if (approve.ExitCode != 0)
                 return StepResult.Fail($"Node approval drain failed for {parsed.RequestId} (exit {approve.ExitCode}): {approve.Stdout.Trim()} {approve.Stderr.Trim()}".Trim());

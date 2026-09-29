@@ -55,7 +55,8 @@ internal static partial class ApprovalRequestHelper
             $"""{ctx.WslPathPrefix} && openclaw {noun} list --json""",
             TimeSpan.FromSeconds(30),
             env,
-            ct);
+            ct,
+            inputViaStdin: true);
 
         var output = $"{pending.Stdout.Trim()} {pending.Stderr.Trim()}".Trim();
         if (pending.ExitCode != 0)
@@ -169,9 +170,6 @@ internal static partial class ApprovalRequestHelper
             throw new InvalidOperationException(
                 "The pending pairing request does not uniquely match this setup's Companion identity.");
     }
-
-    internal static RequestIdParseResult TrySelectPendingRequestForDevice(string json, string? deviceId)
-        => TrySelectPendingRequestForDevice(json, deviceId, matchNodeId: false);
 
     internal static RequestIdParseResult TrySelectPendingRequestForDevice(
         string json,
