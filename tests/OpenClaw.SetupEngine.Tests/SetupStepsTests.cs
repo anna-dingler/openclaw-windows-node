@@ -5402,7 +5402,7 @@ public class SetupStepsTests : IDisposable
             (_, command, _) =>
             {
                 if (command.Contains("openclaw qr --json", StringComparison.Ordinal))
-                    return Ok("""{"bootstrapToken":"boot-token"}""");
+                    return Ok("""{"bootstrapToken":"test-token-placeholder"}""");
                 if (command.Contains("devices list --json", StringComparison.Ordinal))
                     return Ok(++deviceLists == 2
                         ? $$"""{"pending":[{"requestId":"device-req-1","deviceId":"{{PairingSocketDeviceId}}","role":"operator"}]}"""
@@ -5419,7 +5419,7 @@ public class SetupStepsTests : IDisposable
             });
         var ctx = CreateContext(commands: commands);
         ctx.DistroName = "test-distro";
-        ctx.SharedGatewayToken = "shared-token";
+        ctx.SharedGatewayToken = "test-auth-token";
         ctx.Config.Gateway.ReloadMode = "hybrid";
         ctx.OperatorDeviceId = PairingSocketDeviceId;
         ctx.CurrentDeviceApprovalBaseline = await ApprovalRequestHelper.CaptureSetupBaselineOnceAsync(
