@@ -12,7 +12,6 @@
 // </summary>
 using OpenClaw.Shared;
 using OpenClaw.Shared.Inference.Catalog;
-using System.Collections.Immutable;
 using System.Net;
 using System.Text;
 
@@ -455,13 +454,11 @@ public sealed class LlamaServerRuntimeService : ILocalAiRuntime
                         .ConfigureAwait(false);
                     if (probe.IsReadyForManagedModel(runtimeModelPath))
                     {
-                        LocalAiInstallManifest verifiedManifest = install.Manifest with
-                        {
-                            PreviousEndpoints = ReplacementEndpointHistory(install, ownership.Endpoint),
-                            Endpoint = ownership.Endpoint.AbsoluteUri,
-                        };
-                        await _manifestStore.SaveAsync(verifiedManifest, cancellationToken).ConfigureAwait(false);
-                        _install = _manifestStore.ResolveAndValidate(verifiedManifest);
+                        _install = await _manifestStore.UpdateVerifiedEndpointAsync(
+                                install.Manifest,
+                                ownership.Endpoint,
+                                cancellationToken)
+                            .ConfigureAwait(false);
 
                         LocalAiEndpointLifecycleResult published = await PublishRouteAsync(
                                 _install,
@@ -829,27 +826,12 @@ public sealed class LlamaServerRuntimeService : ILocalAiRuntime
         if (install.Endpoint == endpoint)
             return install;
 
-        LocalAiInstallManifest verifiedManifest = install.Manifest with
-        {
-            PreviousEndpoints = ReplacementEndpointHistory(install, endpoint),
-            Endpoint = endpoint.AbsoluteUri,
-        };
-        await _manifestStore.SaveAsync(verifiedManifest, cancellationToken).ConfigureAwait(false);
-        _install = _manifestStore.ResolveAndValidate(verifiedManifest);
+        _install = await _manifestStore.UpdateVerifiedEndpointAsync(
+                install.Manifest,
+                endpoint,
+                cancellationToken)
+            .ConfigureAwait(false);
         return _install;
-    }
-
-    private static ImmutableArray<string> ReplacementEndpointHistory(
-        LocalAiResolvedInstall install,
-        Uri endpoint)
-    {
-        ImmutableArray<string> history = install.Manifest.PreviousEndpoints ?? [];
-        string? previous = install.Endpoint?.AbsoluteUri;
-        return install.Manifest.ReplacedManifest is not null && install.Endpoint != endpoint &&
-            previous is not null &&
-            !history.Contains(previous, StringComparer.Ordinal)
-                ? history.Add(previous)
-                : history;
     }
 
     private async Task<bool> TryLoadInstallAsync(CancellationToken cancellationToken)
