@@ -1339,6 +1339,7 @@ public sealed class LocalAiInstallRecoveryTests
         await store.SaveAsync(pending);
         SetupContext context = CreateContext(temp.Path, confirmDestructive: false);
         context.LocalAiResolvedInstall = store.ResolveAndValidate(pending);
+        context.LocalAiRecoveryOriginalInstall = store.ResolveAndValidate(original);
         context.LocalAiRecoveryProviderTransition = true;
         context.LocalAiRecoveryReceiptRollbackAllowed = true;
 
