@@ -658,8 +658,7 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
                 SettingsSaved: OnSettingsSaved,
                 AdvancedSetupRequested: OnSetupAdvancedSetupRequested,
                 SetupCompleted: OnSetupCompleted,
-                ApplyTheme: ApplyThemePreference,
-                ShowTrayMenu: () => _trayController?.ShowMenu()));
+                ApplyTheme: ApplyThemePreference));
         _updateCoordinator = new UpdateCoordinator(
             AppUpdater,
             _appState,

@@ -38,8 +38,10 @@ public sealed class GatewayScenario
     private static readonly DateTimeOffset Epoch = new(2026, 8, 20, 12, 0, 0, TimeSpan.Zero);
     private readonly Session[] _sessions;
     private readonly IReadOnlyDictionary<string, JsonElement> _reads;
+    private readonly bool _allowAgentCreation;
+    private readonly List<object> _createdAgents = [];
 
-    public string Name => BrowseName;
+    public string Name => _allowAgentCreation ? "agent-creation" : BrowseName;
     public int Version => 1;
     public int ProtocolVersion => GatewayProtocolContract.CurrentVersion;
     public string ContractProvenance =>
@@ -48,10 +50,11 @@ public sealed class GatewayScenario
     public IReadOnlyList<string> SessionKeys { get; }
     public IReadOnlyList<string> ReadMethods { get; }
 
-    private GatewayScenario(Session[] sessions, IReadOnlyDictionary<string, JsonElement> reads)
+    private GatewayScenario(Session[] sessions, IReadOnlyDictionary<string, JsonElement> reads, bool allowAgentCreation = false)
     {
         _sessions = sessions;
         _reads = reads;
+        _allowAgentCreation = allowAgentCreation;
         SessionKeys = Array.AsReadOnly(sessions.Select(s => s.Key).ToArray());
         ReadMethods = Array.AsReadOnly(new[]
         {
@@ -69,7 +72,7 @@ public sealed class GatewayScenario
     public static GatewayScenario LoadBuiltin(string name) =>
         name == BrowseName ? CreateBrowse() : throw new ArgumentException("Unknown fixture scenario.", nameof(name));
 
-    public static GatewayScenario CreateBrowse()
+    public static GatewayScenario CreateBrowse(bool allowAgentCreation = false)
     {
         Session[] sessions =
         [
@@ -198,7 +201,7 @@ public sealed class GatewayScenario
                 version = "fixture-1", generatedAt = Epoch.ToString("O")
             })
         };
-        return new GatewayScenario(sessions, reads);
+        return new GatewayScenario(sessions, reads, allowAgentCreation);
     }
 
     internal object CreateHello(string connectionId) => new
@@ -212,7 +215,7 @@ public sealed class GatewayScenario
             presence = Array.Empty<object>(), health = _reads["health"],
             sessionDefaults = new { defaultAgentId = "main", mainKey = "main", mainSessionKey = MainSessionKey, scope = "per-sender" }
         },
-        auth = new { role = "operator", scopes = new[] { "operator.read" } },
+        auth = new { role = "operator", scopes = _allowAgentCreation ? new[] { "operator.admin", "operator.read" } : new[] { "operator.read" } },
         policy = new { maxPayload = 1_048_576, maxBufferedBytes = 1_048_576, tickIntervalMs = 30_000 }
     };
 
@@ -220,6 +223,29 @@ public sealed class GatewayScenario
 
     internal object Respond(string method, JsonElement parameters)
     {
+        if (_allowAgentCreation && method is "agents.create" or "agents.list")
+        {
+            lock (_createdAgents)
+            {
+                if (method == "agents.create")
+                {
+                    ValidateProperties(parameters, "name", "workspace");
+                    var name = RequiredString(parameters, "name");
+                    var workspace = RequiredString(parameters, "workspace");
+                    if (_createdAgents.Count > 0)
+                        throw new FixtureRequestException("INVALID_REQUEST", "Fixture agent already exists.");
+                    _createdAgents.Add(new { id = "fixture-created", name, identity = new { name } });
+                    return new { ok = true, agentId = "fixture-created", name, workspace };
+                }
+                ValidateProperties(parameters);
+                return new
+                {
+                    defaultId = "main", mainKey = "main", scope = "per-sender",
+                    agents = _reads["agents.list"].GetProperty("agents").EnumerateArray().Cast<object>()
+                        .Concat(_createdAgents).ToArray()
+                };
+            }
+        }
         if (method == "exec.approval.resolve")
             return ResolveApproval(parameters);
         if (IsWrite(method))

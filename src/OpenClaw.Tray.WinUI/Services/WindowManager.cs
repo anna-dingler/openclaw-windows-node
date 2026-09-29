@@ -30,8 +30,7 @@ internal sealed record WindowManagerCallbacks(
     EventHandler SettingsSaved,
     EventHandler AdvancedSetupRequested,
     EventHandler<SetupCompletedEventArgs> SetupCompleted,
-    Action<Window?> ApplyTheme,
-    Action? ShowTrayMenu = null);
+    Action<Window?> ApplyTheme);
 
 internal sealed class WindowManager : IWindowManager
 {
