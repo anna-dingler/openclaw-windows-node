@@ -94,8 +94,10 @@ public sealed class WindowManagerTests
         Assert.Contains("_config.SkipWizard = true;", setupWindow);
         Assert.Contains("_config.RollbackOnFailure = true;", setupWindow);
         Assert.Contains("_config.LocalAi.SelectedModelId = localAiRecoveryModelId;", setupWindow);
+        Assert.Contains("_pinLocalAiRecoveryModel = pinLocalAiRecoveryModel;", setupWindow);
         Assert.Contains("_localAiRecoveryBaseline.Restore(_config);", setupWindow);
         Assert.Contains("localAiRecoveryModelId: localAiRecoveryTarget?.ModelCatalogId", manager);
+        Assert.Contains("pinLocalAiRecoveryModel: localAiRecoveryTarget?.PinModelSelection == true", manager);
         Assert.Contains(
             "localAiRecoveryRequestedPort: localAiRecoveryTarget?.RequestedLocalAiPort",
             manager);
@@ -113,14 +115,16 @@ public sealed class WindowManagerTests
             "SetupWindow.Active?.NavigateToWelcome(back: true);",
             "return;");
         Assert.Contains(
-            "LocalAiModelSelector.IsEnabled = isAvailable;",
+            "LocalAiModelSelector.IsEnabled = isAvailable && !_localAiRecoveryModelPinned;",
             capabilities);
         Assert.Contains(
             "LocalAiToggle.IsEnabled = isAvailable && !_localAiRecoveryOnly;",
             capabilities);
         AssertInOrder(
             capabilities,
-            "if (!selectedEligibility.CanInstall)",
+            "if (_localAiRecoveryModelPinned)",
+            "eligibility = selectedEligibility;",
+            "else if (!selectedEligibility.CanInstall)",
             "_config.LocalAi.SelectedModelId = null;");
     }
 

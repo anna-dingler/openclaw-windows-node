@@ -34,6 +34,7 @@ public sealed partial class SetupWindow : Window
     private Task<HostHardwareInfo>? _localAiHardwareProbeTask;
     private readonly WslViabilityProbe _wslViabilityProbe = new(InspectWslViabilityAsync);
     private bool _startAtLocalAiRecoveryReview;
+    private bool _pinLocalAiRecoveryModel;
     private LocalAiRecoveryConfigurationBaseline _localAiRecoveryBaseline = null!;
 
     public static SetupWindow? Active { get; private set; }
@@ -70,6 +71,7 @@ public sealed partial class SetupWindow : Window
         string? localAiRecoveryDistroName = null,
         int? localAiRecoveryGatewayPort = null,
         string? localAiRecoveryModelId = null,
+        bool pinLocalAiRecoveryModel = false,
         int? localAiRecoveryRequestedPort = null,
         string[]? commandLineArgs = null)
     {
@@ -200,6 +202,7 @@ public sealed partial class SetupWindow : Window
             }
             if (!string.IsNullOrWhiteSpace(localAiRecoveryModelId))
                 _config.LocalAi.SelectedModelId = localAiRecoveryModelId;
+            _pinLocalAiRecoveryModel = pinLocalAiRecoveryModel;
             if (localAiRecoveryRequestedPort is { } requestedPort &&
                 LocalAiPortPolicy.TryValidate(requestedPort, out _))
             {
@@ -249,7 +252,7 @@ public sealed partial class SetupWindow : Window
     }
     internal void NavigateToNativeGatewaySetup() => NavigateTo(typeof(NativeGatewaySetupPage), _config);
     internal void NavigateToNativeCapabilities() =>
-        NavigateTo(typeof(CapabilitiesPage), new CapabilitiesPageArgs(_config, false, NativeGateway: true));
+        NavigateTo(typeof(CapabilitiesPage), new CapabilitiesPageArgs(_config, false, false, NativeGateway: true));
     internal void NavigateToNativeWizard(NativeGatewaySetupSession session)
     {
         NativeSetupSession = session;
@@ -319,7 +322,8 @@ public sealed partial class SetupWindow : Window
             typeof(CapabilitiesPage),
             new CapabilitiesPageArgs(
                 _config,
-                _startAtLocalAiRecoveryReview));
+                _startAtLocalAiRecoveryReview,
+                _pinLocalAiRecoveryModel));
     public void NavigateToProgress() => NavigateTo(typeof(ProgressPage), CreateProgressPageArgs(showMilestoneOnly: false));
     public void NavigateToGatewayInstalledMilestone() =>
         NavigateTo(typeof(ProgressPage), CreateProgressPageArgs(showMilestoneOnly: true));
@@ -345,6 +349,7 @@ public sealed partial class SetupWindow : Window
             return;
 
         _startAtLocalAiRecoveryReview = false;
+        _pinLocalAiRecoveryModel = false;
         _config.LocalAiRecoveryGatewayId = null;
         _localAiRecoveryBaseline.Restore(_config);
         _persistStartupPreferenceOnComplete = true;

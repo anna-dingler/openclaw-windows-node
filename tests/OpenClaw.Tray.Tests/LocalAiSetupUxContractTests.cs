@@ -182,7 +182,7 @@ public sealed class LocalAiSetupUxContractTests
         Assert.Contains("LocalAiOptionContent.IsHitTestVisible = isAvailable", source);
         Assert.Contains("LocalAiOptionContent.Opacity = isAvailable ? 1 : 0.55", source);
         Assert.Contains("LocalAiToggle.IsEnabled = isAvailable", source);
-        Assert.Contains("LocalAiModelSelector.IsEnabled = isAvailable", source);
+        Assert.Contains("LocalAiModelSelector.IsEnabled = isAvailable && !_localAiRecoveryModelPinned", source);
         Assert.Contains("LocalAiNetworkingConsentCheckBox.IsEnabled = isAvailable", source);
         Assert.Contains("Title=\"WSL networking change required\"", networkingInfoBar);
         // Enabling Local AI must never imply consent on its own: the user has to
@@ -276,7 +276,9 @@ public sealed class LocalAiSetupUxContractTests
             "hardwareReason = DescribeLocalAiUnavailable(deviceEligibility);",
             "LocalInferenceEligibilityResult selectedEligibility =",
             "LocalInferenceEligibility.Evaluate(_localAiHardware, selectedModelId);",
-            "if (!selectedEligibility.CanInstall)",
+            "if (_localAiRecoveryModelPinned)",
+            "eligibility = selectedEligibility;",
+            "else if (!selectedEligibility.CanInstall)",
             "_config.LocalAi.SelectedModelId = null;",
             "_config.LocalAi.SelectedModelId ??= _localAiRecommendedModelId ?? deviceEligibility.Plan.Model.Id;",
             "eligibility ??= LocalInferenceEligibility.Evaluate(",

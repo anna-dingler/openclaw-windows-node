@@ -406,7 +406,8 @@ internal sealed class WindowManager : IWindowManager
                 existing.HasDistroDataDirectory,
                 existing.DistroIsAppOwned,
                 install?.Manifest.ModelCatalogId,
-                install?.Manifest.RequestedPort);
+                install?.Manifest.RequestedPort,
+                install?.Manifest.ReplacedManifest is not null);
         }
         catch (Exception ex)
         {
@@ -502,6 +503,7 @@ internal sealed class WindowManager : IWindowManager
                 localAiRecoveryDistroName: localAiRecoveryTarget?.DistroName,
                 localAiRecoveryGatewayPort: localAiRecoveryTarget?.GatewayPort,
                 localAiRecoveryModelId: localAiRecoveryTarget?.ModelCatalogId,
+                pinLocalAiRecoveryModel: localAiRecoveryTarget?.PinModelSelection == true,
                 localAiRecoveryRequestedPort: localAiRecoveryTarget?.RequestedLocalAiPort,
                 commandLineArgs: SetupWindowArgumentProjection.Project(
                     _callbacks.GetStartupArgs(),

@@ -465,7 +465,8 @@ public sealed class LocalAiGatewayProviderCoordinatorTests
             hasDistroDataDirectory: true,
             distroIsAppOwned: true,
             installedModelCatalogId: LocalModelCatalog.Qwen38_27BModelId,
-            installedRequestedLocalAiPort: 28888);
+            installedRequestedLocalAiPort: 28888,
+            pinInstalledModelSelection: true);
 
         Assert.Equal(LocalAiSetupRoute.Recovery, resolution.Route);
         Assert.Equal("managed", resolution.RecoveryTarget?.GatewayId);
@@ -473,6 +474,7 @@ public sealed class LocalAiGatewayProviderCoordinatorTests
         Assert.Equal(29999, resolution.RecoveryTarget?.GatewayPort);
         Assert.Equal(LocalModelCatalog.Qwen38_27BModelId, resolution.RecoveryTarget?.ModelCatalogId);
         Assert.Equal(28888, resolution.RecoveryTarget?.RequestedLocalAiPort);
+        Assert.True(resolution.RecoveryTarget?.PinModelSelection);
     }
 
     [Fact]
