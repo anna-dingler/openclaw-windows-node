@@ -1317,7 +1317,10 @@ public sealed class LocalAiInstallRecoveryTests
         Assert.Equal(StepOutcome.Success, result.Outcome);
         LocalAiInstallManifest committed = (await store.LoadAsync())!.Manifest;
         Assert.Null(committed.ReplacedManifest);
-        Assert.Empty(committed.PreviousEndpoints);
+        Assert.Null(committed.PreviousEndpoints);
+        string json = await File.ReadAllTextAsync(new LocalAiPaths(temp.Path).ManifestPath);
+        Assert.DoesNotContain("previousEndpoints", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("replacedManifest", json, StringComparison.Ordinal);
     }
 
     [Fact]
