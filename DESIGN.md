@@ -63,7 +63,8 @@ rounded:
   sm: 4px
   md: 8px
   lg: 12px
-  bubble: 16px
+  bubble: 12px
+  composer: 20px
   pill: 999px
 x-colophon:
   version: 1
@@ -215,7 +216,7 @@ x-colophon:
         themes:
           dark: "#47b6ef"
           highContrast: "#ffff00"
-        usage: Softer accent fill for the user's own chat bubble. Fluent AccentFillColorSecondary (SystemAccent at ~90%), quieter than the full accent reserved for primary actions.
+        usage: Softer accent fill for the user's own chat bubble. The chat surface binds the chat-local ChatUserBrush (Windows accent at low opacity, for example SystemAccentColorLight2 at 12% on dark and SystemAccentColorDark1 at 8% on light, with the full system highlight in high contrast). AccentFillColorSecondary is the closest standard Fluent approximation for preview.
     typography:
       display:
         weights:
@@ -236,7 +237,7 @@ x-colophon:
         family: '"Segoe Fluent Icons", "Segoe MDL2 Assets", sans-serif'
         weights:
           - 400
-        usage: Fluent icon glyphs (checkmarks, chevrons, action glyphs). Ships as WinUI FontIcon/SymbolIcon on SymbolThemeFontFamily (Segoe Fluent Icons); e.g. the selection CheckMark is glyph U+E73E. Not for body text.
+        usage: Fluent icon glyphs (checkmarks, chevrons, action glyphs). Ships as WinUI FontIcon/SymbolIcon on SymbolThemeFontFamily (Segoe Fluent Icons); e.g. the selection CheckMark is glyph U+E73E. Chat toolbar aliases (FluentIconCatalog) include ChatSubmit U+E74A (send, up glyph), ChatAttach U+E710 (add), ChevronDown U+E70D (picker chevron), and Stop U+E71A (cancel an active turn). Not for body text.
       scale:
         display:
           role: display
@@ -290,7 +291,7 @@ Personality: native, trustworthy, calm, precise.
 - **subtlePressed** {colors.subtlePressed}: Pressed fill for subtle/transparent controls. Fluent SubtleFillColorTertiary (light #06000000).
 - **control** {colors.control}: Fill for input/entry controls (combo boxes, text fields, the chat composer). Fluent ControlFillColorDefault, distinct from the Card surface used for cards/flyouts.
 - **controlLine** {colors.controlLine}: Border for input/entry controls (combo boxes, text fields, composer, avatars). Fluent ControlStrokeColorDefault, distinct from the Card/divider stroke used for cards.
-- **accentSubtle** {colors.accentSubtle}: Softer accent fill for the user's own chat bubble. Fluent AccentFillColorSecondary (SystemAccent at ~90%), quieter than the full accent reserved for primary actions.
+- **accentSubtle** {colors.accentSubtle}: Softer accent fill for the user's own chat bubble. The chat surface binds the chat-local `ChatUserBrush` (Windows accent at low opacity), quieter than the full accent reserved for primary actions.
 
 Colors are preview swatches only. Bind each color's mapped `resource` key (in `x-colophon.tokens.colors`) rather than the hex, so light, dark, and high-contrast themes stay correct. Never put gray text on a colored background.
 
@@ -303,7 +304,7 @@ Colors are preview swatches only. Bind each color's mapped `resource` key (in `x
 - **small** {typography.small}: Secondary and dense UI text. Segoe UI Variable Text optical size.
 - **caption** {typography.caption}: Captions and metadata. Segoe UI Variable Text optical size.
 
-Use Segoe UI Variable for text and Cascadia Mono (`x-colophon.tokens.typography.mono`) for commands, endpoints, tokens, and logs. Fluent icon glyphs use Segoe Fluent Icons (`x-colophon.tokens.typography.icon`); for example, the selection checkmark is glyph U+E73E.
+Use Segoe UI Variable for text and Cascadia Mono (`x-colophon.tokens.typography.mono`) for commands, endpoints, tokens, and logs. Fluent icon glyphs use Segoe Fluent Icons (`x-colophon.tokens.typography.icon`); for example, the selection checkmark is glyph U+E73E, and the chat toolbar uses ChatSubmit (U+E74A), ChatAttach (U+E710), ChevronDown (U+E70D), and Stop (U+E71A).
 
 ## Layout
 
@@ -322,7 +323,16 @@ Use the named shadows in `x-colophon.tokens.shadows` when elevation is needed. K
 
 ## Shapes
 
-Use the `rounded` tokens for corner radii: `sm` for buttons and inputs, `md` for cards and flyouts, `lg` for grouped panels, `bubble` for chat messages (intentionally friendlier), and `pill` for status badges and toggles.
+Use the `rounded` tokens for corner radii: `sm` for buttons and inputs, `md` for cards and flyouts, `lg` for grouped panels, `bubble` (12px) for chat message and code surfaces, `composer` (20px) for the chat writing surface, and `pill` for status badges and toggles.
+
+## Chat surface
+
+The chat transcript and composer ship via Reactor and follow the native chat visual system in [`docs/CHAT_VISUAL_DESIGN.md`](../../docs/CHAT_VISUAL_DESIGN.md). They align to the reading rhythm of the released web chat without replacing Windows chrome, native input, or gateway contracts.
+
+- **Semantic brushes.** Chat binds the chat-local resources in `Themes/ChatResources.xaml` (Default/Light/HighContrast), not raw palette hex: `ChatCanvasBrush` (transparent; system window in HC), `ChatComposerBrush` and `ChatCardBrush` (`CardBackgroundFillColorDefault`), `ChatStrokeBrush` (`ControlStrokeColorDefault`), `ChatTextBrush` (`TextFillColorPrimary`), `ChatSecondaryTextBrush` (`TextFillColorSecondary`, used for code text), `ChatUserBrush` (accent at low opacity for the user bubble), `ChatUserTextBrush` (`TextFillColorPrimary`), `ChatPickerAccentBrush` (accent variants for picker triggers), and `ChatCopySuccessBrush` (`SystemFillColorSuccess`).
+- **Surface layering.** The Hub title bar and expanded navigation pane reveal Mica; `NavigationViewContentBackground` supplies one content layer (`LayerFillColorDefaultBrush`; system window in HC). The chat canvas is transparent so it neither hides nor doubles that layer, and the composer and code cards use the card fill above it. The standalone chat window uses the same Mica plus one content layer.
+- **Geometry.** The reading column is capped at 768px with a 16px prose inset; outer gutters are 12px below 640px and 40px above. The avatar is omitted below 960px. The writing surface uses the `composer` (20px) radius, a 16px editor inset, and a 112px minimum height; message and code surfaces use the `bubble` (12px) radius. All spacing stays on the 4px grid.
+- **Footer controls.** One bottom row keeps Attach, session, model, effort, voice, and the primary Send/Stop. The model picker is a native flyout with an AutoSuggestBox over a grouped single-selection list. Effort uses a native discrete slider with a compact gauge trigger (a WinUI-path rendering, not a font glyph) at narrow widths. Copy actions confirm with a `ChatCopySuccessBrush` checkmark and announce Copied.
 
 ## Components
 
