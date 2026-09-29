@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -3509,6 +3509,18 @@ Commands are blocked while sandboxing is unavailable because strict fallback blo
   </data>
   <data name="PermissionsPage_RulesCount_ManyFormat" xml:space="preserve">
     <value>{0} entries</value>
+  </data>
+  <data name="PermissionsPage_ExecRuleScope_Main" xml:space="preserve">
+    <value>this agent</value>
+  </data>
+  <data name="PermissionsPage_ExecRuleScope_Wildcard" xml:space="preserve">
+    <value>all agents</value>
+  </data>
+  <data name="PermissionsPage_RemoveRuleAutomationNameFormat" xml:space="preserve">
+    <value>Remove {0} allowlist entry {1}</value>
+  </data>
+  <data name="PermissionsPage_ExecRuleAction_Inactive" xml:space="preserve">
+    <value>inactive</value>
   </data>
   <data name="PermissionsPage_Allowlist_NoConfig" xml:space="preserve">
     <value>No allowlist data available. Connect to a gateway first.</value>
@@ -7180,4 +7192,124 @@ Make sure the gateway is running.</value>
   <data name="LocalAiPage_UnavailableProbeTitle" xml:space="preserve"><value>Local AI availability could not be verified</value></data>
   <data name="LocalAiPage_CheckingTitle" xml:space="preserve"><value>Checking Local AI availability</value></data>
   <data name="LocalAiPage_CheckingMessage" xml:space="preserve"><value>OpenClaw is verifying whether this device can run Local AI. This only takes a moment.</value></data>
+  <data name="Migration_InnoCompleted" xml:space="preserve">
+    <value>Your OpenClaw setup was migrated to the Store version. Close this message to exit this app. Then uninstall the previous OpenClaw Companion app through Windows Settings &gt; Apps &gt; Installed apps and open the Store version. Your migrated setup and gateway will be preserved.</value>
+  </data>
+  <data name="Migration_InnoCheckFailed" xml:space="preserve">
+    <value>OpenClaw could not check whether migration to the Store version has completed. This copy cannot start safely. Close other OpenClaw processes and try again. Do not delete migration data or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StorePreviewTitle" xml:space="preserve">
+    <value>OpenClaw migration preview</value>
+  </data>
+  <data name="Migration_StorePreviewReady" xml:space="preserve">
+    <value>A supported previous installation was found. Normal startup is paused. You can start migration, or choose Not now to continue using the previous app.</value>
+  </data>
+  <data name="Migration_StoreConsent" xml:space="preserve">
+    <value>A supported previous installation was found. Start migration only when you are ready.
+
+Choosing {0} validates your setup and saves protected migration records. If validation succeeds, the previous app will be blocked from starting normally. You must then uninstall the previous app through Windows Settings &gt; Apps &gt; Installed apps and reopen the Store app to finish migration. Your setup and gateway will be preserved; nothing is uninstalled automatically.
+
+Choose {1} to exit this preview without starting migration and continue using the previous app.</value>
+  </data>
+  <data name="Migration_StoreMigrate" xml:space="preserve">
+    <value>Migrate</value>
+  </data>
+  <data name="Migration_StoreNotNow" xml:space="preserve">
+    <value>Not now</value>
+  </data>
+  <data name="Migration_StoreCloseInno" xml:space="preserve">
+    <value>Close the previous OpenClaw Companion app, then choose {0} to retry. Choose {1} to exit this preview. Do not force-close the previous app or uninstall it yet. Uninstall only after this preview tells you migration completion has been recorded.</value>
+  </data>
+  <data name="Migration_StoreRetry" xml:space="preserve">
+    <value>Retry</value>
+  </data>
+  <data name="Migration_StoreAdoptionPending" xml:space="preserve">
+    <value>The previous app is closed and migration could proceed. This test build does not adopt your setup yet. Close this preview. Do not uninstall the previous app, delete migration data, or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StorePrepared" xml:space="preserve">
+    <value>The previous app is closed. OpenClaw validated your current setup and saved protected migration preparation data. This test build does not adopt your setup yet. Close this preview. Do not uninstall the previous app, delete migration data, or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StoreValidationFailed" xml:space="preserve">
+    <value>OpenClaw could not safely validate the previous setup for migration. No completion was recorded and the previous app was not changed. Close this preview and try again later. Do not uninstall the previous app, delete migration data, or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StoreCredentialUnavailable" xml:space="preserve">
+    <value>OpenClaw could not resolve a credential for the active gateway. No completion was recorded and the previous app was not changed. Close this preview and restore the active gateway configuration before retrying. Do not uninstall the previous app, delete migration data, or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StoreAwaitingInnoRemoval" xml:space="preserve">
+    <value>OpenClaw recorded migration completion and preserved your setup. Close this preview, uninstall the previous OpenClaw Companion app through Windows Settings, then open the Store version. Do not delete migration data or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StoreYes" xml:space="preserve">
+    <value>Yes</value>
+  </data>
+  <data name="Migration_StoreNo" xml:space="preserve">
+    <value>No</value>
+  </data>
+  <data name="Migration_StoreUpdateRequired" xml:space="preserve">
+    <value>The previous app is older than this preview's required source version. Migration and normal Store startup are blocked. Use a verified migration-capable Inno release before testing migration. Your setup has not been changed.</value>
+  </data>
+  <data name="Migration_StoreUnsupported" xml:space="preserve">
+    <value>This installation layout, architecture, or package configuration is not supported by the migration preview. Only the default per-user installation with a matching architecture is supported. Your setup has not been changed.</value>
+  </data>
+  <data name="Migration_StoreInspectionFailed" xml:space="preserve">
+    <value>The migration preview could not safely inspect the previous installation or migration records. Normal startup is blocked. Close this preview and check the app log before retrying. Do not delete migration data or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StoreFinalizationFailed" xml:space="preserve">
+    <value>OpenClaw could not safely finish the completed migration. Normal startup is blocked and the migration receipt was kept for recovery. Close this preview and try again later. Do not delete migration data or run gateway cleanup.</value>
+  </data>
+  <data name="Migration_StoreStartupRefused" xml:space="preserve">
+    <value>OpenClaw finished the migration, but Windows would not enable OpenClaw Companion at sign-in. Your data and settings were migrated. To start OpenClaw automatically, enable OpenClaw Companion in Settings > Apps > Startup, or contact your administrator if startup is managed by policy.</value>
+  </data>
+  <data name="Migration_StorePending" xml:space="preserve">
+    <value>A previous migration needs recovery or finalization. This test build cannot continue it or start normally. Close this preview. Do not uninstall the previous app, delete migration data, or run gateway cleanup.</value>
+  </data>
+  <data name="Chat_Code_Copy" xml:space="preserve"><value>Copy code</value></data>
+  <data name="Chat_Code_Label" xml:space="preserve"><value>Code block</value></data>
+  <data name="Chat_Model_Current" xml:space="preserve"><value>Current model</value></data>
+  <data name="Chat_Model_Other" xml:space="preserve"><value>Other models</value></data>
+  <data name="Chat_Model_NoMatches" xml:space="preserve"><value>No matching models</value></data>
+  <data name="Chat_Model_Search" xml:space="preserve"><value>Search models</value></data>
+  <data name="Chat_Attachment_Remove" xml:space="preserve"><value>Remove attachment</value></data>
+  <data name="Chat_Timeline_Loading" xml:space="preserve"><value>Loading messages...</value></data>
+  <data name="Chat_Composer_QueuedCountSingle" xml:space="preserve"><value>1 queued message</value></data>
+  <data name="Chat_Copy_Copied" xml:space="preserve"><value>Copied</value></data>
+  <data name="Chat_Copy_Failed" xml:space="preserve"><value>Copy failed</value></data>
+  <data name="Chat_Composer_Effort_Title" xml:space="preserve"><value>Effort</value></data>
+  <data name="Chat_Composer_Effort_Faster" xml:space="preserve"><value>Faster</value></data>
+  <data name="Chat_Composer_Effort_Smarter" xml:space="preserve"><value>Smarter</value></data>
+  <data name="Onboarding_Native_Title.Text" xml:space="preserve"><value>Install a local native gateway</value></data>
+  <data name="Onboarding_Native_Description.Text" xml:space="preserve"><value>Install a local, MXC contained OpenClaw gateway</value></data>
+  <data name="Onboarding_Wsl_Title.Text" xml:space="preserve"><value>Install a local WSL gateway</value></data>
+  <data name="Onboarding_Native_CheckingSupport" xml:space="preserve"><value>Checking native gateway support...</value></data>
+  <data name="Onboarding_Native_SupportAvailable" xml:space="preserve"><value>Native gateway support is available on this device.</value></data>
+  <data name="Onboarding_Native_SupportUnavailable" xml:space="preserve"><value>Native gateway support is unavailable. Install Windows Insider build {0} or a newer supported build in Windows Update, then reopen this page. Feature availability can vary by device.</value></data>
+  <data name="Onboarding_Native_SupportCheckFailed" xml:space="preserve"><value>Could not verify native gateway support. Reopen this page to retry. If the check keeps failing, update or repair Companion.</value></data>
+  <data name="Onboarding_Native_UnsupportedPlatform" xml:space="preserve"><value>Native gateway setup requires a supported Windows client. Windows Server is not supported.</value></data>
+  <data name="Onboarding_Native_WindowsUpdate.Content" xml:space="preserve"><value>Open Windows Update</value></data>
+  <data name="Onboarding_Native_Recommended.Text" xml:space="preserve"><value>Recommended</value></data>
+  <data name="Onboarding_Native_Alternatives.Header" xml:space="preserve"><value>Other gateway options</value></data>
+  <data name="Onboarding_Native_UpdateLaunchFailed" xml:space="preserve"><value>Could not open Windows Update. Open Windows Settings, then Windows Update.</value></data>
+  <data name="Onboarding_Native_Lifecycle.Text" xml:space="preserve"><value>Continue with the same Gateway setup wizard used for WSL, here in Companion. Companion validates configuration and health before connecting. Existing WSL gateways and your default OpenClaw profile are not replaced.</value></data>
+  <data name="Onboarding_Native_Acquisition.Text" xml:space="preserve"><value>If the Gateway is not installed, setup opens its Microsoft Store listing. Complete installation there; Companion will continue automatically after verifying the package.</value></data>
+  <data name="Onboarding_Native_InstallerOpened" xml:space="preserve"><value>Complete installation from Microsoft Store. Companion will continue automatically when the package is ready. Cancelling setup here does not cancel Store installation.</value></data>
+  <data name="Onboarding_Native_ProgressSubtitle.Text" xml:space="preserve"><value>Companion will prepare your Gateway and open its setup wizard automatically.</value></data>
+  <data name="Onboarding_Native_StepSupport" xml:space="preserve"><value>Check device support</value></data>
+  <data name="Onboarding_Native_StepPackage" xml:space="preserve"><value>Install or verify Gateway package</value></data>
+  <data name="Onboarding_Native_StepPrepare" xml:space="preserve"><value>Prepare your Gateway profile</value></data>
+  <data name="Onboarding_Native_StepVerify" xml:space="preserve"><value>Start and verify the Gateway</value></data>
+  <data name="Onboarding_Native_Retry.Content" xml:space="preserve"><value>Retry setup</value></data>
+  <data name="Onboarding_Native_Preview" xml:space="preserve"><value>Preview only. No package will be installed or Gateway started.</value></data>
+  <data name="Onboarding_Native_Review.Text" xml:space="preserve"><value>Companion will check the Gateway package, open its Microsoft Store listing if needed, prepare a dedicated profile, and open Gateway setup. Store installation and provider sign-in stay interactive. This path does not install WSL, Local AI, or Tailscale.</value></data>
+  <data name="Onboarding_Native_FeaturesNote.Text" xml:space="preserve"><value>These Windows capabilities become usable after Node Mode connects and pairs with the Gateway. Windows permissions and command approvals still apply.</value></data>
+  <data name="Onboarding_Native_ConfiguredTitle" xml:space="preserve"><value>Native Gateway configured</value></data>
+  <data name="Onboarding_Native_CapabilitySummary" xml:space="preserve"><value>{0}. You can change these choices in Companion Settings.</value></data>
+  <data name="Onboarding_Native_ReviewTitle" xml:space="preserve"><value>Ready to set up your native gateway</value></data>
+  <data name="Onboarding_Native_Start.Content" xml:space="preserve"><value>Set up gateway</value></data>
+  <data name="Onboarding_Native_Cancel.Content" xml:space="preserve"><value>Cancel setup</value></data>
+  <data name="Onboarding_Native_Back.Content" xml:space="preserve"><value>Back</value></data>
+  <data name="Onboarding_Native_Open.Content" xml:space="preserve"><value>Open Companion to connect</value></data>
+  <data name="Onboarding_Native_Checking" xml:space="preserve"><value>Checking the installed Gateway package and its execution aliases...</value></data>
+  <data name="Onboarding_Native_Available" xml:space="preserve"><value>Gateway package {0} is installed.</value></data>
+  <data name="Onboarding_Native_InProgress" xml:space="preserve"><value>Preparing the native Gateway for the shared setup wizard. Provider and model questions will appear here in Companion.</value></data>
+  <data name="Onboarding_Native_Cancelled" xml:space="preserve"><value>Setup cancelled. Any configuration already entered is retained in the dedicated native profile. No Gateway package was removed.</value></data>
+  <data name="Onboarding_Native_Configured" xml:space="preserve"><value>Gateway configuration and authenticated health verified at {0}. Open Companion to start the gateway and finish device pairing in Connection settings. Your selected Windows capabilities have been saved.</value></data>
 </root>

@@ -37,6 +37,11 @@
     <AppIdentityMarker>release</AppIdentityMarker>
   </PropertyGroup>
 
+  <!-- Fixture launchers require this marker before starting an app with host-side effects suppressed. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="OpenClaw.GatewayFixtureIsolationVersion" Value="1" />
+  </ItemGroup>
+
   <!-- Work around dotnet/runtime#129191 in production builds. Explicit DevBuild
        builds retain debugger support for managed/native interop diagnostics. -->
   <ItemGroup Condition="'$(Configuration)' == 'Release' and '$(DevBuild)' != 'true'">
@@ -52,6 +57,24 @@
   <PropertyGroup Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">
     <RuntimeIdentifier>win-arm64</RuntimeIdentifier>
   </PropertyGroup>
+
+  <!-- Read-only admission experiment; never enabled in a shipping configuration. -->
+  <PropertyGroup Condition="'$(StoreMigrationPreview)' == 'true'">
+    <DefineConstants>$(DefineConstants);STORE_MIGRATION_PREVIEW</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(StoreMigrationPreview)' == 'true'">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>StoreMigrationPreviewMinimumSourceVersion</_Parameter1>
+      <_Parameter2>$(StoreMigrationPreviewMinimumSourceVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+  <Target Name="ValidateStoreMigrationPreview" BeforeTargets="CoreCompile"
+          Condition="'$(StoreMigrationPreview)' == 'true'">
+    <Error Condition="'$(Configuration)' != 'Debug' or '$(PackageMsix)' != 'true' or '$(DevBuild)' == 'true'"
+           Text="Store migration preview is restricted to Debug MSIX builds with the production identity. It must not ship." />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(StoreMigrationPreviewMinimumSourceVersion)', '^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$'))"
+           Text="Store migration preview requires an explicit numeric StoreMigrationPreviewMinimumSourceVersion. No production source version has been approved." />
+  </Target>
 
   <!-- Unpackaged (default): traditional EXE distribution via Inno Setup -->
   <PropertyGroup Condition="'$(PackageMsix)' != 'true'">
@@ -118,6 +141,7 @@
 
   <ItemGroup>
     <Content Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\OpenClaw.SetupEngine\default-config.json"
              Link="default-config.json"
              CopyToOutputDirectory="PreserveNewest" />

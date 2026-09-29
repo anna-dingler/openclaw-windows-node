@@ -42,6 +42,8 @@ function Assert-Policy {
         [hashtable]$FakeSignatures,
         [string]$ExpectedError
     )
+    $caseName = $Name
+
     # Shadow the cmdlet only inside this offline case. Published cases below
     # call the real Windows cmdlet through the unchanged verifier entry point.
     if ($null -ne $FakeSignatures) {
@@ -60,13 +62,13 @@ function Assert-Policy {
     }
     if ($ExpectedError) {
         if ($null -eq $failure -or -not $failure.Contains($ExpectedError)) {
-            throw "Case '$Name': expected '$ExpectedError', received '$failure'."
+            throw "Case '$caseName': expected '$ExpectedError', received '$failure'."
         }
     } elseif ($null -ne $failure) {
-        throw "Case '$Name': unexpected rejection: $failure"
+        throw "Case '$caseName': unexpected rejection: $failure"
     }
     $script:passed++
-    Write-Host "Passed: $Name"
+    Write-Host "Passed: $caseName"
 }
 
 function Invoke-OfflineCase {
@@ -84,13 +86,13 @@ function Invoke-OfflineCase {
     $names = if ($Installers) { $installerNames } else { $ownedNames + "tools\mxc\x64\wxc-exec.exe" }
     if ($ExtraFile) { $names += $ExtraFile }
     $signatures = @{}
-    foreach ($name in $names) {
-        if ($name -eq $MissingFile) { continue }
-        $file = Join-Path $path $name
+    foreach ($binaryName in $names) {
+        if ($binaryName -eq $MissingFile) { continue }
+        $file = Join-Path $path $binaryName
         [IO.Directory]::CreateDirectory((Split-Path -Parent $file)) | Out-Null
         [IO.File]::WriteAllText($file, "offline signature fixture")
         $leaf = [IO.Path]::GetFileName($file)
-        $signatures[$leaf] = if ($name -eq $ChangedFile) { $Signature } elseif ($name -like "tools\*") {
+        $signatures[$leaf] = if ($binaryName -eq $ChangedFile) { $Signature } elseif ($binaryName -like "tools\*") {
             New-Signature -Status NotSigned -Subject "" -Timestamp $false
         } else { New-Signature }
     }

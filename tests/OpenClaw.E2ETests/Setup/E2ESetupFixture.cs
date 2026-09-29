@@ -165,7 +165,10 @@ public sealed class E2ESetupFixture : IAsyncLifetime
             setupArguments.Add(candidatePackage);
         }
 
-        var exitCode = await Program.Main([.. setupArguments]);
+        var exitCode = await Program.RunWithFailureDiagnosticAsync(
+            [.. setupArguments],
+            (ctx, stepId, result) => GatewayRestartFailureDiagnostic.CaptureAsync(
+                ctx, stepId, result, Path.Combine(ArtifactDir, "gateway-restart-diagnostic.json")));
 
         if (exitCode != 0)
         {
@@ -240,12 +243,7 @@ public sealed class E2ESetupFixture : IAsyncLifetime
 
         try
         {
-            var exitCode = await Program.Main([
-                "--config", _configPath,
-                "--uninstall",
-                "--confirm-destructive",
-                "--log-path", uninstallLogPath
-            ]);
+            var exitCode = await Program.Main(BuildUninstallArguments(_configPath, _distroName, uninstallLogPath));
             Log($"Uninstall completed with exit code {exitCode}.");
         }
 
@@ -265,6 +263,18 @@ public sealed class E2ESetupFixture : IAsyncLifetime
 
         Log("Teardown complete.");
     }
+
+    internal static string[] BuildUninstallArguments(string configPath, string distroName, string logPath) =>
+    [
+        "--config", configPath,
+        "--uninstall",
+        "--confirm-destructive",
+        // AutoStart=false does not suppress full uninstall's host startup cleanup.
+        // Reuse the fixture's unique distro identity, never the installed app's names.
+        "--autostart-name", $"{distroName}-Tray",
+        "--startup-task-name", $"{distroName}-Startup",
+        "--log-path", logPath
+    ];
 
     public void SetTrayEnvironmentVariable(string name, string value)
     {
@@ -354,14 +364,12 @@ public sealed class E2ESetupFixture : IAsyncLifetime
                 ["openclaw-setup"] = "true",
                 ["security-disclaimer"] = "true",
                 ["i-understand-this-is-personal-by-default-and-shared-multi-user-use-requires-lock-down-continue"] = "true",
-                ["setup-mode"] = "quickstart",
                 ["existing-config-detected"] = "true",
                 ["config-handling"] = "keep",
                 ["quickstart"] = "true",
                 ["model-auth-provider"] = "skip",
                 ["default-model"] = "__keep__",
                 ["select-channel-quickstart"] = "__skip__",
-                ["search-provider"] = "__skip__",
                 ["configure-skills-now-recommended"] = "false",
             },
             Settings = new

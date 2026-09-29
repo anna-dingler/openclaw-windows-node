@@ -52,6 +52,7 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     private ITrayController? _trayController;
     private IWindowManager? _windowManager;
     private GatewayConnectionManager? _connectionManager;
+    internal InteractiveGatewayEndpointAuthorizer? InteractiveEndpointAuthorizer { get; private set; }
     private GatewayDirectConnectService? _gatewayDirectConnectService;
     private GatewayRegistry? _gatewayRegistry;
     private OpenClawTray.Services.ManagedLocalGatewayAutoRepairMonitor? _managedLocalAutoRepairMonitor;
@@ -204,6 +205,9 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     private readonly SshTunnelRecoveryBudget _sshTunnelRecoveryBudget = new();
     private GlobalHotkeyService? _globalHotkey;
     private Mutex? _mutex;
+    // Do not release during managed shutdown: a failed service disposal may leave state
+    // writers running. Windows closes this handle only when the process terminates.
+    private IDisposable? _innoMigrationLease;
     private Microsoft.UI.Dispatching.DispatcherQueue? _dispatcherQueue;
     private AppState? _appState;
     internal AppState? AppState => _appState;
@@ -290,6 +294,9 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
 
     public App()
     {
+        // Validate before restart handling, logging, settings, or run-marker writes.
+        _ = GatewayFixtureIsolation.Get();
+
         WaitForRestartSourceIfRequested(Environment.GetCommandLineArgs());
         StartupInputConfigurator.Configure();
 
@@ -535,6 +542,12 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
             return; // Environment.Exit called inside; defensive return
         }
 
+        if (StoreMigrationStartupGuard.ShouldStopLaunch())
+        {
+            Exit();
+            return;
+        }
+
         // Check for protocol activation (MSIX packaged apps receive deep links this way)
         string? protocolUri = GetProtocolActivationUri();
 
@@ -571,6 +584,13 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
                 Logger.Warn("Post-setup restart acquired abandoned tray mutex.");
                 ownsMutex = true;
             }
+        }
+
+        // Keep Inno's AppMutex held while finish-migration guidance is visible.
+        if (ownsMutex && InnoMigrationStartupGuard.ShouldStopLaunch(out _innoMigrationLease))
+        {
+            Exit();
+            return;
         }
 
         _activationRouter = new ActivationRouter(AppIdentity.ProtocolScheme, DeepLinkPipeName);
@@ -702,8 +722,10 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
         // explicitly via Application.Exit().
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
 
-        // Register toast activation handler
-        ToastNotificationManagerCompat.OnActivated += OnToastActivated;
+        // Touching the toolkit initializes installed COM/AUMID registration, even
+        // when notification display is disabled in this profile.
+        if (!GatewayFixtureIsolation.IsEnabled)
+            ToastNotificationManagerCompat.OnActivated += OnToastActivated;
 
         _sshTunnelService = new SshTunnelService(new AppLogger());
         _sshTunnelService.TunnelExited += OnSshTunnelExited;
@@ -807,6 +829,10 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
         // SshTunnelService implements ISshTunnelManager directly — no shim needed
         var managedLocalPortProvenance = _managedLocalPortProvenance =
             new ManagedLocalGatewayPortProvenanceService(appLogger);
+        var nativeGatewayRuntime = new OpenClaw.Connection.NativeGateway.NativeGatewayRuntime(
+            _gatewayRegistry, new OpenClaw.SetupEngine.UI.NativeGatewayPackageResolver(), appLogger);
+        InteractiveEndpointAuthorizer = new InteractiveGatewayEndpointAuthorizer(
+            nativeGatewayRuntime, managedLocalPortProvenance.IsStrongCredentialAllowed, appLogger);
         _connectionManager = new GatewayConnectionManager(
             credentialResolver, clientFactory, _gatewayRegistry, appLogger,
             identityStore: new DeviceIdentityFileStore(appLogger),
@@ -815,7 +841,8 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
             diagnostics: diagnostics,
             tunnelManager: _sshTunnelService,
             endpointProvenanceProbe: managedLocalPortProvenance.InspectAsync,
-            validationTunnelFactory: () => new SshTunnelService(appLogger));
+            validationTunnelFactory: () => new SshTunnelService(appLogger),
+            nativeGatewayRuntime: nativeGatewayRuntime);
         _connectionManager.OperatorClientChanged += OnOperatorClientChanged;
         _connectionManager.StateChanged += OnManagerStateChanged;
         _gatewayDirectConnectService = new GatewayDirectConnectService(
@@ -3734,11 +3761,11 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
 
     private void OnSetupCompleted(object? sender, SetupCompletedEventArgs e) =>
         AsyncEventHandlerGuard.Run(
-            () => RestartAfterSetupAsync(e.EnableAutoStart),
+            () => RestartAfterSetupAsync(e.EnableAutoStart, e.PreserveStartupPreference),
             new AppLogger(),
             nameof(OnSetupCompleted));
 
-    private async Task RestartAfterSetupAsync(bool enableAutoStart)
+    private async Task RestartAfterSetupAsync(bool enableAutoStart, bool preserveStartupPreference)
     {
         var exePath = ResolveCurrentExecutablePath();
         if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
@@ -3749,7 +3776,7 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
 
         try
         {
-            if (enableAutoStart)
+            if (enableAutoStart && !preserveStartupPreference)
             {
                 try
                 {
@@ -3868,7 +3895,7 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
             _settings.LegacyToken,
             _settings.LegacyBootstrapToken,
             (record, candidate) =>
-                _managedLocalPortProvenance?.IsStrongCredentialAllowed(record, candidate) == true,
+                InteractiveEndpointAuthorizer?.IsCredentialAllowed(record, candidate) == true,
             out var credential) ||
             credential == null)
         {
@@ -4092,6 +4119,11 @@ public partial class App : Application, OpenClawTray.Services.IAppCommands, IPer
     private async Task ReconcileAutoStartOnStartupAsync()
     {
         if (_settings == null) return;
+        if (GatewayFixtureIsolation.IsEnabled)
+        {
+            Logger.Info("Gateway fixture mode: skipping Windows auto-start reconciliation.");
+            return;
+        }
 
         var persisted = false;
         await _autoStartMutationGate.WaitAsync();
