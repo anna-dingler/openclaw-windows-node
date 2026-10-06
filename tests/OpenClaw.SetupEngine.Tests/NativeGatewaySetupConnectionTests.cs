@@ -12,6 +12,51 @@ public sealed class NativeGatewaySetupConnectionTests
 {
     private const string Token = "native-loopback-fixture-token-not-a-production-credential";
     private const string Model = "fixture/native-model";
+    private const string StaleDeviceToken = "stale-operator-device-token-not-a-production-credential";
+
+    /// <summary>
+    /// A gateway that no longer honours the stored operator device token must not wedge
+    /// onboarding: the rejected credential is retired and the shared setup token reconnects.
+    /// </summary>
+    [Fact]
+    public async Task RejectedOperatorDeviceToken_IsRetiredSoSetupReconnectsWithTheSharedCredential()
+    {
+        await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
+        using var fixture = CreateFixture(server, isolated: true);
+        await using var owner = await fixture.PrepareAsync();
+        var identity = new DeviceIdentity(owner.IdentityDirectory);
+        identity.Initialize();
+        identity.StoreDeviceToken(StaleDeviceToken);
+        Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
+
+        await using var connection = await NativeGatewaySetupConnection.ConnectAsync(owner);
+
+        Assert.True(connection.IsConnected);
+        Assert.Null(DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
+        var reloaded = new DeviceIdentity(owner.IdentityDirectory);
+        reloaded.Initialize();
+        Assert.Equal(identity.DeviceId, reloaded.DeviceId);
+    }
+
+    /// <summary>
+    /// A device token the gateway still honours must survive the connect unchanged.
+    /// </summary>
+    [Fact]
+    public async Task AcceptedOperatorDeviceToken_IsPreservedAcrossSetupConnect()
+    {
+        await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
+        server.AcceptedDeviceToken = StaleDeviceToken;
+        using var fixture = CreateFixture(server, isolated: true);
+        await using var owner = await fixture.PrepareAsync();
+        var identity = new DeviceIdentity(owner.IdentityDirectory);
+        identity.Initialize();
+        identity.StoreDeviceToken(StaleDeviceToken);
+
+        await using var connection = await NativeGatewaySetupConnection.ConnectAsync(owner);
+
+        Assert.True(connection.IsConnected);
+        Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
+    }
 
     [Theory]
     [InlineData(false)]

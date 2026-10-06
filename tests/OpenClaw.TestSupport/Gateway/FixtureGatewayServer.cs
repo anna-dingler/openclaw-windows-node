@@ -44,6 +44,14 @@ public sealed class FixtureGatewayServer : IAsyncDisposable
     private sealed record ActiveConnection(WebSocket Socket, SemaphoreSlim SendLock, CancellationToken CancellationToken);
 
     public Uri Endpoint { get; }
+
+    /// <summary>
+    /// The only device token this fixture accepts. A connect carrying any other
+    /// device token is answered with <c>AUTH_DEVICE_TOKEN_MISMATCH</c>, modelling a
+    /// gateway whose pairing record no longer matches the caller's stored credential.
+    /// When null, every presented device token is rejected.
+    /// </summary>
+    public string? AcceptedDeviceToken { get; set; }
     public Task HandshakeCompleted => _handshake.Task;
     public Task ConnectionAccepted => _accepted.Task;
     public int ConnectionCount => Volatile.Read(ref _connectionCount);
@@ -452,7 +460,17 @@ public sealed class FixtureGatewayServer : IAsyncDisposable
     {
         if (p.ValueKind != JsonValueKind.Object)
             throw new FixtureRequestException("INVALID_PARAMS", "connect params must be an object.");
-        if (!p.TryGetProperty("auth", out var auth) || ReadString(auth, "token") is not { } token
+        p.TryGetProperty("auth", out var auth);
+        var presentedDeviceToken = auth.ValueKind == JsonValueKind.Object ? ReadString(auth, "deviceToken") : null;
+        if (!string.IsNullOrEmpty(presentedDeviceToken))
+        {
+            // A paired caller sends its device token alone, so it is the sole credential to judge.
+            if (AcceptedDeviceToken is null || !CryptographicOperations.FixedTimeEquals(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(AcceptedDeviceToken)),
+                    SHA256.HashData(Encoding.UTF8.GetBytes(presentedDeviceToken))))
+                throw new FixtureRequestException("AUTH_DEVICE_TOKEN_MISMATCH", "Unauthorized: device token mismatch.");
+        }
+        else if (auth.ValueKind != JsonValueKind.Object || ReadString(auth, "token") is not { } token
             || !CryptographicOperations.FixedTimeEquals(_tokenHash, SHA256.HashData(Encoding.UTF8.GetBytes(token))))
             throw new FixtureRequestException("AUTH_TOKEN_MISMATCH", "Unauthorized: fixture token mismatch.");
         if (ReadString(p, "role") != "operator")
