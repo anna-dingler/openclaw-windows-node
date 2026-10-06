@@ -58,6 +58,75 @@ public sealed class NativeGatewaySetupConnectionTests
         Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
     }
 
+    /// <summary>
+    /// Recovery must fail closed when the listener is no longer the verified managed Gateway.
+    /// A rejected token is never retired, and no shared credential is disclosed, on the word
+    /// of a process whose ownership cannot be proven.
+    /// </summary>
+    [Fact]
+    public async Task Recovery_IsRefusedAndRetiresNothingWhenGatewayOwnershipFailsVerification()
+    {
+        await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
+        using var fixture = CreateFixture(server, isolated: true);
+        await using var owner = await fixture.PrepareAsync();
+        var identity = new DeviceIdentity(owner.IdentityDirectory);
+        identity.Initialize();
+        identity.StoreDeviceToken(StaleDeviceToken);
+
+        // Ownership changes after the gateway rejected the stored token.
+        fixture.Runtime.Provenance = GatewayEndpointProvenanceKind.UnknownListener;
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => owner.RecoverRejectedOperatorTokenAsync(StaleDeviceToken, default));
+
+        Assert.Contains("ownership could not be verified", error.Message);
+        Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
+        Assert.DoesNotContain(server.Requests, request => request.Method == "connect");
+    }
+
+    /// <summary>
+    /// Recovery must fail closed when the isolated setup credential or port drifted, since the
+    /// shared token it would fall back to is no longer the one this session was staged against.
+    /// </summary>
+    [Fact]
+    public async Task Recovery_IsRefusedAndRetiresNothingWhenSetupCredentialChanged()
+    {
+        await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
+        using var fixture = CreateFixture(server, isolated: true);
+        await using var owner = await fixture.PrepareAsync();
+        var identity = new DeviceIdentity(owner.IdentityDirectory);
+        identity.Initialize();
+        identity.StoreDeviceToken(StaleDeviceToken);
+
+        fixture.Host.IsolatedConfiguration = new(server.Endpoint.Port, "rotated-setup-token-not-a-production-credential");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => owner.RecoverRejectedOperatorTokenAsync(StaleDeviceToken, default));
+
+        Assert.Contains("port or token changed", error.Message);
+        Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
+        Assert.DoesNotContain(server.Requests, request => request.Method == "connect");
+    }
+
+    /// <summary>
+    /// Recovery is budgeted once per staged session so a gateway that keeps rejecting cannot
+    /// drive repeated credential deletion.
+    /// </summary>
+    [Fact]
+    public async Task Recovery_IsBudgetedOncePerStagedSession()
+    {
+        await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
+        using var fixture = CreateFixture(server, isolated: true);
+        await using var owner = await fixture.PrepareAsync();
+        var identity = new DeviceIdentity(owner.IdentityDirectory);
+        identity.Initialize();
+        identity.StoreDeviceToken(StaleDeviceToken);
+
+        Assert.True(await owner.RecoverRejectedOperatorTokenAsync(StaleDeviceToken, default));
+        identity.StoreDeviceToken(StaleDeviceToken);
+
+        Assert.False(await owner.RecoverRejectedOperatorTokenAsync(StaleDeviceToken, default));
+        Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
