@@ -60,11 +60,12 @@ public sealed class NativeGatewaySetupConnectionTests
 
     /// <summary>
     /// Recovery must fail closed when the listener is no longer the verified managed Gateway.
-    /// A rejected token is never retired, and no shared credential is disclosed, on the word
-    /// of a process whose ownership cannot be proven.
+    /// Driven through the production connect path: the gateway rejects the stored token, the
+    /// endpoint's ownership changes before recovery re-verifies it, and nothing is retired,
+    /// disclosed, or paired on the word of a process whose ownership cannot be proven.
     /// </summary>
     [Fact]
-    public async Task Recovery_IsRefusedAndRetiresNothingWhenGatewayOwnershipFailsVerification()
+    public async Task Recovery_IsRefusedThroughConnectWhenGatewayOwnershipFailsVerification()
     {
         await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
         using var fixture = CreateFixture(server, isolated: true);
@@ -73,22 +74,28 @@ public sealed class NativeGatewaySetupConnectionTests
         identity.Initialize();
         identity.StoreDeviceToken(StaleDeviceToken);
 
-        // Ownership changes after the gateway rejected the stored token.
-        fixture.Runtime.Provenance = GatewayEndpointProvenanceKind.UnknownListener;
+        // Ownership changes only once the gateway has rejected the stored token, so the
+        // staged authorization still succeeds and recovery is genuinely reached.
+        server.DeviceTokenRejected = () =>
+            fixture.Runtime.Provenance = GatewayEndpointProvenanceKind.UnknownListener;
+
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => owner.RecoverRejectedOperatorTokenAsync(StaleDeviceToken, default));
+            () => NativeGatewaySetupConnection.ConnectAsync(owner));
 
         Assert.Contains("ownership could not be verified", error.Message);
+        Assert.Equal(1, server.DeviceTokenRejections);
         Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
-        Assert.DoesNotContain(server.Requests, request => request.Method == "connect");
+        Assert.Equal(0, server.SharedCredentialConnects);
+        Assert.Null(fixture.Host.ApprovedId);
     }
 
     /// <summary>
     /// Recovery must fail closed when the isolated setup credential or port drifted, since the
     /// shared token it would fall back to is no longer the one this session was staged against.
+    /// Driven through the production connect path.
     /// </summary>
     [Fact]
-    public async Task Recovery_IsRefusedAndRetiresNothingWhenSetupCredentialChanged()
+    public async Task Recovery_IsRefusedThroughConnectWhenSetupCredentialChanged()
     {
         await using var server = await FixtureGatewayServer.StartAsync(GatewayScenario.CreateNativeSetup(Reply), Token);
         using var fixture = CreateFixture(server, isolated: true);
@@ -97,13 +104,17 @@ public sealed class NativeGatewaySetupConnectionTests
         identity.Initialize();
         identity.StoreDeviceToken(StaleDeviceToken);
 
-        fixture.Host.IsolatedConfiguration = new(server.Endpoint.Port, "rotated-setup-token-not-a-production-credential");
+        server.DeviceTokenRejected = () => fixture.Host.IsolatedConfiguration =
+            new(server.Endpoint.Port, "rotated-setup-token-not-a-production-credential");
+
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => owner.RecoverRejectedOperatorTokenAsync(StaleDeviceToken, default));
+            () => NativeGatewaySetupConnection.ConnectAsync(owner));
 
         Assert.Contains("port or token changed", error.Message);
+        Assert.Equal(1, server.DeviceTokenRejections);
         Assert.Equal(StaleDeviceToken, DeviceIdentity.TryReadStoredDeviceToken(owner.IdentityDirectory));
-        Assert.DoesNotContain(server.Requests, request => request.Method == "connect");
+        Assert.Equal(0, server.SharedCredentialConnects);
+        Assert.Null(fixture.Host.ApprovedId);
     }
 
     /// <summary>
